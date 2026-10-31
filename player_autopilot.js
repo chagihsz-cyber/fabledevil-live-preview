@@ -49,8 +49,12 @@
     return null;
   }
   class MainPlayerBrain{
-    constructor(){this.stalled=0;this.lastX=null;this.jumpHold=0;this.jumpCooldown=0;this.crateRecovery=null;this.portalChoices=new WeakMap();}
-    reset(){this.stalled=0;this.lastX=null;this.jumpHold=0;this.jumpCooldown=0;this.crateRecovery=null;this.portalChoices=new WeakMap();}
+    constructor(){this.stalled=0;this.lastX=null;this.jumpHold=0;this.jumpCooldown=0;
+      this.crateRecovery=null;this.portalChoices=new WeakMap();this.wasReversed=false;
+      this.reverseReaction=0;}
+    reset(){this.stalled=0;this.lastX=null;this.jumpHold=0;this.jumpCooldown=0;
+      this.crateRecovery=null;this.portalChoices=new WeakMap();this.wasReversed=false;
+      this.reverseReaction=0;}
     next(dt,game){
       const p=game.player;
       const solids=typeof game.collectSolids==="function"?game.collectSolids():game.level.solids;
@@ -86,8 +90,9 @@
       // Yellow portals conceal their outcome. The bot decides to gamble or
       // jump past each portal without consulting its eventual destination.
       if(direction===1&&!puzzle){
-        const portal=game.level.traps.find(t=>t.constructor?.name==="RiskPortal"&&
-          t.x>p.x+p.w-3&&t.x<p.x+p.w+96);
+        const portal=game.level.traps.find(t=>t.isRiskPortal&&
+          t.x>p.x+p.w-3&&t.x<p.x+p.w+96&&
+          !(t.warning>0||t.ttl===0));
         if(portal){
           if(!this.portalChoices.has(portal)){
             const seed=Math.sin(portal.x*12.9898+(game.endlessSeed||0)*.013)*43758.5453;
@@ -100,7 +105,19 @@
         }
       }
       decision.direction=direction;
-      decision.reverseControls=reversedAt(game,p);
+      const actualReversed=reversedAt(game,p);
+      const reactionRoom=game.level.traps.find(t=>t.constructor?.name==="ChaosRoom"&&
+        (t.type==="mirror"||t.type==="chaos")&&p.x+p.w/2>t.x-90&&
+        p.x+p.w/2<t.x+t.width+90);
+      if(actualReversed&&!this.wasReversed){
+        const wobble=Math.abs(Math.sin((p.x+(game.endlessSeed||0))*0.017));
+        this.reverseReaction=.3+wobble*.35;
+      }else if(!actualReversed&&!reactionRoom)this.reverseReaction=0;
+      this.wasReversed=actualReversed||!!reactionRoom;
+      this.reverseReaction=Math.max(0,this.reverseReaction-Math.max(0,Math.min(.1,dt)));
+      decision.actualReversed=actualReversed;
+      decision.reactionRemaining=this.reverseReaction;
+      decision.reverseControls=actualReversed&&this.reverseReaction===0;
       const step=Math.max(0,Math.min(0.05,dt));
       this.jumpCooldown=Math.max(0,this.jumpCooldown-step);
       this.jumpHold=Math.max(0,this.jumpHold-step);

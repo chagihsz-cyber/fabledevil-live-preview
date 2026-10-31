@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="pt-BR" data-theme="dark">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=autobot1" />
+<link rel="stylesheet" href="style.css?v=live-v2" />
 </head>
 <body>
 <!-- TOP CONTROL BAR (always visible) -->
@@ -17,6 +17,8 @@
   <button id="btn-mute" class="ic-btn" aria-label="Toggle sound"><span id="ic-mute"></span></button>
   <button id="btn-fs" class="ic-btn" aria-label="Toggle fullscreen"><span id="ic-fs"></span></button>
   <button id="btn-back-menu" class="ic-btn hidden" aria-label="Voltar ao menu" title="Voltar ao menu">⌂</button>
+  <button id="live-panel-toggle" class="ic-btn live-toggle" type="button"
+    aria-label="Abrir central LIVE simulada" aria-controls="live-panel" aria-expanded="false">LIVE</button>
 </div>
 
 <div id="stage">
@@ -31,7 +33,7 @@
     <div class="hud-right">
       <span class="skull">&#9760;</span><span id="hud-deaths">0</span>
       <span id="arcade-distance" class="hidden">0 m</span>
-      <span id="arcade-hearts" class="hearts-indicator">♥♥♥♥</span>
+      <span id="arcade-hearts" class="hearts-indicator">♥ 10/10</span>
       <span id="arcade-wallet" class="coins-indicator">🪙 0</span>
       <span id="live-weapon-hud" class="hidden" aria-live="polite">SEM ARMA</span>
       <span id="arcade-effect" class="hidden" aria-live="off">⚡</span>
@@ -65,7 +67,7 @@
         <button id="challenge-btn" type="button">⚙ TESTAR ARMADILHAS NOVAS</button>
       </div>
       <label class="main-player-option" for="main-player-bot"><input id="main-player-bot" type="checkbox"> 🤖 Personagem principal automático <small>(mesmo personagem)</small></label>
-      <p class="modes-info">54 fases: 24 aventuras novas depois da fase 30 · + desafios infinitos · quatro vidas e moedas</p>
+      <p class="modes-info">54 fases: 24 aventuras novas depois da fase 30 · + desafios infinitos · dez vidas e moedas</p>
       <button type="button" id="shop-btn">🪙 LOJA DE VIDAS</button>
       <div class="grid-label">levels</div>
       <div id="level-grid"></div>
@@ -75,13 +77,45 @@
     </div>
   </div>
 
+  <aside id="live-panel" class="live-panel hidden" aria-label="Central LIVE simulada">
+    <div class="live-panel-heading">
+      <div><strong>CENTRAL LIVE</strong><small>simulador local · não é uma LIVE real</small></div>
+      <button id="live-panel-close" type="button" aria-label="Fechar central LIVE">×</button>
+    </div>
+    <div class="live-status-row">
+      <strong id="live-status" class="live-status simulated">● SIMULADO</strong>
+      <span id="live-roster-count">0/20 participantes</span>
+      <span id="live-countdown" role="timer">completa em 15 s</span>
+    </div>
+    <form id="live-name-form" class="live-name-form">
+      <label for="live-name">Bot por comentário</label>
+      <input id="live-name" maxlength="20" autocomplete="off" placeholder="Ex.: Maria Silva" required>
+      <button type="submit">SIMULAR #NOME</button>
+    </form>
+    <div class="live-simulator" aria-label="Simulador local de eventos suportados">
+      <button id="simulate-comment" type="button">💬 #NOME <small>simulado</small></button>
+      <button id="simulate-like" type="button">♥ CURTIDA <small>simulado</small></button>
+      <button id="simulate-rose" type="button">🌹 ROSA · +1 VIDA</button>
+      <button id="simulate-portal" type="button">? PORTAL <small>simulado</small></button>
+      <button id="simulate-obstacle" type="button">⚠ OBSTÁCULO <small>simulado</small></button>
+      <button id="simulate-horde" type="button">🧟 HORDA <small>simulado</small></button>
+      <button id="simulate-weapon" type="button">⌁ ARMA EXTRA <small>simulado</small></button>
+      <button id="simulate-power" type="button">◌ PODER COLA <small>simulado</small></button>
+      <button id="live-connect" type="button">CONECTAR PONTE LOCAL</button>
+    </div>
+    <p class="live-disclaimer">Somente ROSA está mapeada como presente nominal nesta configuração. Gifts desconhecidos não produzem efeito.</p>
+    <p id="live-feedback" class="live-feedback" aria-live="polite">Simulador pronto. Nenhuma rede externa será aberta.</p>
+    <ol id="live-roster" class="live-roster" aria-label="Bots inscritos"></ol>
+  </aside>
+  <div id="live-event-toast" class="live-event-toast hidden" role="status" aria-live="polite"></div>
+
   <div id="race-standings" class="hidden" aria-label="Classificação da corrida"></div>
   <!-- Economy and competition are prototypes local to the browser. -->
   <div id="zombie-settings" class="arcade-dialog hidden" role="dialog" aria-label="Escolher dificuldade dos zumbis">
     <h2>🧟 SOBREVIVÊNCIA ZUMBI</h2>
     <p>Escolha a dificuldade. No fácil, eles perseguem mais devagar e aparecem menos.</p>
     <label><input type="radio" name="zombie-difficulty" value="easy" checked> Fácil — perseguição moderada (154)</label>
-    <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — enxame veloz (224)</label>
+    <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — 12–18 zumbis velozes em ação</label>
     <label><input id="zombie-main-bot" type="checkbox"> 🤖 Personagem principal controlado por bot</label>
     <label><input id="zombie-weapons" type="checkbox"> Ativar ARMAS com munição limitada</label>
     <button id="zombie-start" type="button">COMEÇAR</button>
@@ -97,30 +131,12 @@
     <h2>FICOU SEM VIDAS!</h2>
     <p id="out-lives-caption">Use moedas para continuar no mesmo percurso ou comece uma nova partida.</p>
     <button type="button" id="lives-buy">CONTINUAR — 20 MOEDAS</button>
-    <button type="button" id="lives-restart">RECOMEÇAR — 4 VIDAS</button>
+    <button type="button" id="lives-restart">RECOMEÇAR — 10 VIDAS</button>
     <button type="button" id="lives-menu">VOLTAR AO MENU</button>
   </div>
   <div id="competition-settings" class="arcade-dialog hidden" role="dialog" aria-label="Treino de competição">
     <h2>🏁 LABORATÓRIO LIVE 2D</h2>
-    <p>Adicione espectadores no simulador. Após 15 s sem nomes novos, o sistema completa até 5 bots.</p>
-    <div class="live-status-row">
-      <strong id="live-status" class="live-status simulated">● SIMULADO</strong>
-      <span id="live-roster-count">0/12 participantes</span>
-      <span id="live-countdown" role="timer">completa em 15 s</span>
-    </div>
-    <form id="live-name-form" class="live-name-form">
-      <label for="live-name">Nome do bot</label>
-      <input id="live-name" maxlength="40" autocomplete="off" placeholder="Ex.: Maria" required>
-      <button type="submit">ADICIONAR BOT</button>
-    </form>
-    <div class="live-simulator" aria-label="Simulador de eventos">
-      <button id="simulate-like" type="button">♥ CURTIDA</button>
-      <button id="simulate-comment" type="button">💬 “!ENTRAR”</button>
-      <button id="simulate-gift" type="button">🎁 PRESENTE</button>
-      <button id="live-connect" type="button">CONECTAR PONTE LOCAL</button>
-    </div>
-    <p id="live-feedback" class="live-feedback" aria-live="polite">Simulador pronto. Nenhuma rede externa será aberta.</p>
-    <ol id="live-roster" class="live-roster" aria-label="Bots inscritos"></ol>
+    <p>Use a Central LIVE no canto superior para adicionar até 20 espectadores e testar eventos. Após 15 s sem nomes, o sistema completa até 5 bots.</p>
     <label>Objetivo <select id="competition-type">
       <option value="race">Corrida até 350 m</option>
       <option value="last">Último sobrevivente</option>
@@ -213,8 +229,8 @@
 <script src="campaign_chapter2.js?v=arcade9"></script>
 <script src="arcade_modes.js?v=arcade9"></script>
 <script src="lab_chambers.js?v=arcade9"></script>
-<script src="adventure_modes.js?v=arcade9"></script>
-<script src="live_modes.js?v=live3"></script>
-<script src="player_autopilot.js?v=autobot2"></script>
+<script src="adventure_modes.js?v=live-v2"></script>
+<script src="live_modes.js?v=live-v2"></script>
+<script src="player_autopilot.js?v=live-v2"></script>
 </body>
 </html>

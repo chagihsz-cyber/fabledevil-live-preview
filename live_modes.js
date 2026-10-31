@@ -8,11 +8,20 @@
   if(typeof module!=="undefined"&&module.exports)module.exports=api;
   root.MotocaLiveCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this,function () {
-  const LIVE_LIMITS=Object.freeze({minBots:5,maxBots:12,nameLength:20,idleMs:15000});
+  const LIVE_LIMITS=Object.freeze({minBots:5,maxBots:20,nameLength:20,idleMs:15000,
+    maxRuntimeObjects:48});
+  const LIVE_GIFT_CONFIG=Object.freeze({
+    names:Object.freeze({"ROSA":"life"}),
+    ids:Object.freeze({"fd-life":"life","fd-portal":"portal","fd-obstacle":"obstacle",
+      "fd-horde":"horde","fd-weapon":"weapon","fd-power":"power"}),
+  });
   const WEAPONS=Object.freeze({
     pistol:{ammo:8,cooldown:.36,pellets:1,speed:720,spread:0},
     smg:{ammo:16,cooldown:.16,pellets:1,speed:760,spread:.025},
     shotgun:{ammo:5,cooldown:.72,pellets:3,speed:650,spread:.14},
+    laser:{ammo:6,cooldown:.48,pellets:1,speed:940,spread:0},
+    burst:{ammo:9,cooldown:.28,pellets:2,speed:790,spread:.045},
+    glue:{ammo:4,cooldown:1.1,pellets:1,speed:560,spread:0},
   });
   function sanitizeName(value) {
     return String(value??"").normalize("NFKC")
@@ -21,6 +30,39 @@
       .replace(/[^\p{L}\p{N} _.-]/gu,"")
       .replace(/\s+/g," ").trim().slice(0,LIVE_LIMITS.nameLength);
   }
+  function parseParticipation(comment,viewer=""){
+    const text=String(comment??"").normalize("NFKC").trim();
+    const safeViewer=sanitizeName(viewer);
+    if(text.startsWith("#")){
+      const name=sanitizeName(text.slice(1));
+      return name?{name,viewer:safeViewer,legacy:false}:null;
+    }
+    if(["entrar","!entrar"].includes(text.toLocaleLowerCase("pt-BR"))&&safeViewer)
+      return {name:safeViewer,viewer:safeViewer,legacy:true};
+    return null;
+  }
+  function resolveGiftEffect(payload,config=LIVE_GIFT_CONFIG){
+    if(!payload||typeof payload!=="object")return null;
+    const giftName=String(payload.giftName??"").normalize("NFKC").trim().toLocaleUpperCase("pt-BR");
+    const giftId=String(payload.giftId??"").trim();
+    return config.names?.[giftName]??config.ids?.[giftId]??null;
+  }
+  class LiveEventGate{
+    constructor(opts={}){
+      this.globalMax=opts.globalMax??6;this.globalWindow=opts.globalWindow??2;
+      this.cooldowns={life:4,portal:6,obstacle:3,horde:10,weapon:5,power:5,
+        ...(opts.cooldowns||{})};
+      this.last=new Map();this.recent=[];
+    }
+    allow(effect,now){
+      if(!Number.isFinite(now)||!effect)return false;
+      this.recent=this.recent.filter(time=>now-time<this.globalWindow);
+      if(this.recent.length>=this.globalMax)return false;
+      const cooldown=this.cooldowns[effect]??1;
+      if(now-(this.last.get(effect)??-Infinity)<cooldown)return false;
+      this.last.set(effect,now);this.recent.push(now);return true;
+    }
+  }
   class LiveLobby {
     constructor(opts={}) {
       this.minBots=opts.minBots??LIVE_LIMITS.minBots;
@@ -28,7 +70,7 @@
       this.idleMs=opts.idleMs??LIVE_LIMITS.idleMs;
       this.participants=[];this.lastViewerAt=0;this.systemSequence=0;
     }
-    add(rawName,origin="viewer",now=0) {
+    add(rawName,origin="viewer",now=0,viewer="") {
       if(origin!=="viewer"&&origin!=="system")return null;
       const name=sanitizeName(rawName);
       if(!name)return null;
@@ -40,8 +82,8 @@
         if(replace<0)return null;
         this.participants.splice(replace,1);
       }
-      const participant={id:"live-"+(this.participants.length+1)+"-"+now,
-        name,key,origin};
+      const participant={id:"live-"+(this.systemSequence+1)+"-"+now+"-"+key,
+        name,key,origin,viewer:origin==="viewer"?sanitizeName(viewer)||name:""};
       this.participants.push(participant);
       if(origin==="viewer")this.lastViewerAt=now;
       return participant;
@@ -125,22 +167,51 @@
       this.lastGift=now;return true;
     }
   }
-  return {LIVE_LIMITS,WEAPONS,sanitizeName,LiveLobby,chooseBehindSpawn,chooseRiskPortalLanding,WeaponState};
+  return {LIVE_LIMITS,LIVE_GIFT_CONFIG,WEAPONS,sanitizeName,parseParticipation,
+    resolveGiftEffect,LiveEventGate,LiveLobby,chooseBehindSpawn,
+    chooseRiskPortalLanding,WeaponState};
 });
 
 /* Browser adapter. It is intentionally additive and only wraps endless mode. */
 (function () {
   if(typeof document==="undefined"||typeof Game==="undefined")return;
-  const {LIVE_LIMITS,LiveLobby,chooseBehindSpawn,chooseRiskPortalLanding,sanitizeName,WeaponState,WEAPONS}=MotocaLiveCore;
+  const {LIVE_LIMITS,LiveLobby,chooseBehindSpawn,chooseRiskPortalLanding,
+    sanitizeName,parseParticipation,resolveGiftEffect,LiveEventGate,
+    WeaponState,WEAPONS}=MotocaLiveCore;
   const lobby=new LiveLobby();
   const byId=id=>document.getElementById(id);
   const rosterEl=byId("live-roster"),countEl=byId("live-roster-count");
   const countdownEl=byId("live-countdown"),feedbackEl=byId("live-feedback");
   const goButton=byId("competition-go"),statusEl=byId("live-status");
+  const livePanel=byId("live-panel"),liveToggle=byId("live-panel-toggle");
   const palette=["#79c6ed","#d4a3e8","#e6d178","#89d29a","#ed9d81",
     "#9eb3ee","#e998c4","#9ed6cc","#e8b36c","#b3d77d","#d1a9ef","#8ed0e8"];
-  let simulatedSequence=0,bridge=null;
+  let simulatedSequence=0,bridge=null,effectSequence=0;
+  const eventGate=new LiveEventGate(),pendingEffects=[];
+  const lastJoinByViewer=new Map();
   const clockMs=()=>Math.floor((typeof performance!=="undefined"?performance.now():Date.now()));
+  const colorFor=index=>index<palette.length?palette[index]:
+    `hsl(${Math.round((index*137.508)%360)} 62% ${58+(index%3)*6}%)`;
+
+  function createLiveBot(participant,index){
+    return {participantId:participant.id,name:participant.name,origin:participant.origin,
+      viewer:participant.viewer,color:colorFor(index),speed:190+(index*23)%54,
+      x:55,y:448,w:24,h:32,vy:0,vx:0,grounded:true,
+      lives:Game.maxHearts||10,alive:true,respawnTimer:0,protectedUntil:0,
+      jumps:0,deadCount:0,safeX:55,lastY:448,phase:index*1.31,stuckFor:0};
+  }
+  function syncLiveBots(){
+    if(Game.arcadeMode!=="endless"||!Game.level)return null;
+    let runtime=Game.level.traps.find(t=>t.constructor?.name==="CompetitionTraining");
+    if(!runtime){runtime=new Game.CompetitionTraining("live");Game.level.traps.push(runtime);}
+    const current=new Map(runtime.rivals.map(bot=>[bot.participantId,bot]));
+    runtime.rivals=lobby.participants.slice(0,LIVE_LIMITS.maxBots).map((participant,index)=>{
+      const bot=current.get(participant.id)||createLiveBot(participant,index);
+      bot.name=participant.name;bot.origin=participant.origin;bot.viewer=participant.viewer;
+      bot.color=colorFor(index);return bot;
+    });
+    return runtime;
+  }
 
   function feedback(message){if(feedbackEl)feedbackEl.textContent=message;}
   function setStatus(kind,label){
@@ -148,6 +219,13 @@
     statusEl.className="live-status "+kind;
     statusEl.textContent="● "+label;
   }
+  function setPanel(open){
+    livePanel?.classList.toggle("hidden",!open);
+    liveToggle?.setAttribute("aria-expanded",String(open));
+  }
+  liveToggle?.addEventListener("click",()=>
+    setPanel(livePanel?.classList.contains("hidden")));
+  byId("live-panel-close")?.addEventListener("click",()=>setPanel(false));
   function renderLobby(now=clockMs()) {
     const result=lobby.tick(now);
     if(result.added.length)feedback("Vagas completadas com bots do sistema.");
@@ -156,7 +234,9 @@
       for(const participant of lobby.participants){
         const item=document.createElement("li");
         const origin=document.createElement("small");
-        item.textContent=participant.name;origin.textContent=participant.origin;
+        item.textContent=participant.name;
+        origin.textContent=participant.origin==="viewer"&&participant.viewer&&
+          participant.viewer!==participant.name?"via "+participant.viewer:participant.origin;
         item.appendChild(origin);rosterEl.appendChild(item);
       }
     }
@@ -170,32 +250,30 @@
       goButton.disabled=!ready;
       goButton.textContent=ready?"INICIAR COM "+lobby.participants.length+" BOTS":"AGUARDANDO 5 BOTS";
     }
+    syncLiveBots();
   }
-  function addViewer(rawName,now=clockMs()) {
-    const participant=lobby.add(rawName,"viewer",now);
-    if(participant)feedback(participant.name+" entrou como espectador.");
+  function addViewer(rawName,now=clockMs(),viewer="") {
+    const participant=lobby.add(rawName,"viewer",now,viewer);
+    if(participant)feedback(participant.name+" entrou na corrida.");
     else feedback("Nome vazio, repetido ou limite de participantes atingido.");
     renderLobby(now);return participant;
   }
   const nameForm=byId("live-name-form"),nameInput=byId("live-name");
   if(nameForm)nameForm.addEventListener("submit",event=>{
     event.preventDefault();
-    if(addViewer(nameInput.value)){nameInput.value="";nameInput.focus();}
+    if(addViewer(nameInput.value,clockMs(),"simulador")){nameInput.value="";nameInput.focus();}
   });
   byId("simulate-comment")?.addEventListener("click",()=>{
     simulatedSequence++;
-    addViewer(nameInput?.value||("Espectador "+simulatedSequence));
+    const name=nameInput?.value||("Espectador "+simulatedSequence);
+    handleBridgeEvent({type:"chat",user:"simulador-"+simulatedSequence,comment:"#"+name});
     if(nameInput)nameInput.value="";
   });
   byId("simulate-like")?.addEventListener("click",()=>
     feedback("Curtida simulada recebida; curtidas não criam bots nem drops."));
-  byId("simulate-gift")?.addEventListener("click",()=>{
-    if(Game.liveWeapons?.requestGiftDrop(clockMs()/1000))
-      feedback("Presente simulado: um drop limitado foi criado.");
-    else feedback("Presente recebido; drop bloqueado pelo cooldown ou modo atual.");
-  });
   byId("competition-btn")?.addEventListener("click",()=>{
     if(!lobby.participants.length)lobby.lastViewerAt=clockMs();
+    setPanel(true);
     renderLobby();
   });
   goButton?.addEventListener("click",event=>{
@@ -212,10 +290,27 @@
       else setStatus("simulated","SIMULADO");
       feedback(sanitizeName(payload.message)||"Status da ponte atualizado.");
     }else if(payload.type==="chat"){
-      const command=String(payload.comment||"").trim().toLocaleLowerCase("pt-BR");
-      if(command==="entrar"||command==="!entrar")addViewer(payload.user);
+      const entry=parseParticipation(payload.comment,payload.user);
+      if(!entry)return;
+      const viewerKey=(sanitizeName(payload.user)||"anônimo").toLocaleLowerCase("pt-BR");
+      const now=clockMs();
+      if(now-(lastJoinByViewer.get(viewerKey)??-Infinity)<750){
+        feedback("Comentário repetido muito rápido; aguarde um instante.");return;
+      }
+      if(lastJoinByViewer.size>=256){
+        for(const [key,time] of lastJoinByViewer)
+          if(now-time>60000)lastJoinByViewer.delete(key);
+        if(lastJoinByViewer.size>=256)
+          lastJoinByViewer.delete(lastJoinByViewer.keys().next().value);
+      }
+      lastJoinByViewer.set(viewerKey,now);
+      addViewer(entry.name,now,entry.viewer);
+    }else if(payload.type==="like"){
+      feedback("Curtida recebida de "+(sanitizeName(payload.user)||"viewer")+".");
     }else if(payload.type==="gift"){
-      Game.liveWeapons?.requestGiftDrop(clockMs()/1000);
+      const effect=resolveGiftEffect(payload);
+      if(effect)triggerEffect(effect,clockMs()/1000,"gift");
+      else feedback("Gift sem mapeamento foi ignorado com segurança.");
     }
   }
   byId("live-connect")?.addEventListener("click",()=>{
@@ -231,6 +326,7 @@
   });
 
   const baseZombieSpawn=ZombieHorde.prototype.spawn;
+  const baseZombieUpdate=ZombieHorde.prototype.update;
   ZombieHorde.prototype.spawn=function(g){
     if(g.arcadeMode!=="endless")return baseZombieSpawn.call(this,g);
     const race=g.level.traps.find(t=>t.constructor.name==="CompetitionTraining");
@@ -245,25 +341,30 @@
       bornAt:g.time,autoShootReadyAt:g.time+2.3,spawnT:1.15});
     this.spawned++;return true;
   };
+  ZombieHorde.prototype.update=function(dt,g){
+    for(const zombie of this.zombies)
+      if(Number.isFinite(zombie.ttl))zombie.ttl-=dt;
+    const result=baseZombieUpdate.call(this,dt,g);
+    this.zombies=this.zombies.filter(zombie=>!Number.isFinite(zombie.ttl)||zombie.ttl>0);
+    return result;
+  };
 
   class RiskPortal {
     constructor(x,y,sectionEnd){
       this.x=x;this.y=y;this.w=30;this.h=48;
       this.arcadeSectionEnd=sectionEnd;this.cool=0;this.t=0;
-      this.outcome=null;
+      this.outcome=null;this.isRiskPortal=true;this.entityCooldown=new WeakMap();
     }
-    reset(){this.cool=0;this.t=0;this.outcome=null;}
-    update(dt,g){
-      this.t+=dt;this.cool=Math.max(0,this.cool-dt);
-      if(this.cool>0||g.state!=="play")return;
-      const p=g.player;
-      if(!aabb(p,R(this.x,this.y,this.w,this.h)))return;
-      this.cool=1.4;
+    reset(){this.cool=0;this.t=0;this.outcome=null;this.entityCooldown=new WeakMap();}
+    transport(p,g,random=Math.random){
+      if(!p||g.state!=="play"||!aabb(p,R(this.x,this.y,this.w,this.h)))return false;
+      const last=this.entityCooldown.get(p)??-Infinity;
+      if(g.time-last<1.4)return false;
       const lethal=[];
       const otherPortals=[];
       for(const trap of g.level.traps){
         if(trap!==this&&typeof trap.kills==="function")lethal.push(...trap.kills());
-        if(trap.constructor?.name==="RiskPortal")otherPortals.push(trap.x);
+        if(trap.isRiskPortal)otherPortals.push(trap.x);
         if(Array.isArray(trap.zombies)){
           for(const zombie of trap.zombies)
             lethal.push(R(zombie.x-34,zombie.y-14,90,65));
@@ -278,12 +379,19 @@
         if(solid.y<480&&solid.y+solid.h>443)lethal.push(solid);
       }
       const target=chooseRiskPortalLanding(p.x,g.level.solids,lethal,
-        otherPortals,Math.random);
-      if(!target)return;
+        otherPortals,random);
+      if(!target)return false;
       p.x=target.x;p.y=target.y-p.h;p.vx=0;p.vy=0;
       p.grounded=true;p.jumping=false;p.coyote=0;
+      this.entityCooldown.set(p,g.time);
       this.outcome=target.beneficial?"help":"setback";
       if(typeof AudioFX!=="undefined")AudioFX.poof();
+      return true;
+    }
+    update(dt,g){
+      this.t+=dt;this.cool=Math.max(0,this.cool-dt);
+      if(g.state!=="play")return;
+      this.transport(g.player,g);
     }
     solids(){return []}
     kills(){return []}
@@ -298,6 +406,74 @@
       ctx.restore();
     }
   }
+  class LiveSurprisePortal extends RiskPortal{
+    constructor(x,y,sectionEnd){
+      super(x,y,sectionEnd);this.warning=.75;this.ttl=10;this.isLiveObject=true;
+      this.originalX=x;this.diverted=false;
+    }
+    transport(entity,g,random=Math.random){
+      if(this.warning>0||this.ttl<=0)return false;
+      return super.transport(entity,g,random);
+    }
+    update(dt,g){
+      this.warning=Math.max(0,this.warning-dt);this.ttl=Math.max(0,this.ttl-dt);
+      if(this.warning===0&&!this.diverted){
+        this.diverted=true;
+        if(Math.sin(this.originalX*.019)>.35)this.x+=64;
+      }
+      if(this.ttl>0)super.update(dt,g);
+    }
+    draw(){
+      if(this.ttl<=0)return;
+      if(this.warning>0){
+        ctx.save();ctx.fillStyle="#ffd37a";ctx.font="bold 11px "+FONT;
+        ctx.textAlign="center";ctx.fillText("PORTAL SURPRESA!",this.x+15,this.y-13);
+        ctx.restore();return;
+      }
+      super.draw();
+    }
+  }
+  class LiveObstacle{
+    constructor(x,type="spike",sectionEnd=Infinity){
+      this.x=x;this.type=type;this.warning=.7;this.ttl=12;
+      this.arcadeSectionEnd=sectionEnd;this.isLiveObject=true;this.t=0;
+    }
+    reset(){this.warning=.7;this.ttl=12;this.t=0;}
+    update(dt){this.t+=dt;this.warning=Math.max(0,this.warning-dt);
+      this.ttl=Math.max(0,this.ttl-dt);}
+    solids(){
+      return this.warning===0&&this.ttl>0&&this.type==="wall"
+        ?[R(this.x,428,34,52)]:[];
+    }
+    kills(){
+      if(this.warning>0||this.ttl<=0||this.type==="wall")return [];
+      if(this.type==="hole")return [R(this.x,465,48,24)];
+      if(this.type==="saw")return [R(this.x,448,38,32)];
+      return [R(this.x,452,42,28)];
+    }
+    draw(){
+      if(this.ttl<=0)return;
+      ctx.save();
+      if(this.warning>0){
+        ctx.globalAlpha=.45+.35*Math.sin(this.t*18);ctx.fillStyle="#ffcb69";
+        ctx.fillRect(this.x,472,44,6);ctx.fillStyle=theme.ink;
+        ctx.font="bold 10px "+FONT;ctx.textAlign="center";
+        ctx.fillText("!",this.x+22,466);ctx.restore();return;
+      }
+      if(this.type==="wall"){
+        ctx.fillStyle="#a8744f";roundRect(this.x,428,34,52,4);ctx.fill();
+      }else if(this.type==="hole"){
+        ctx.fillStyle="#080b0c";ctx.fillRect(this.x,465,48,15);
+      }else if(this.type==="saw"){
+        ctx.fillStyle="#d7dde0";ctx.beginPath();ctx.arc(this.x+19,463,15,0,Math.PI*2);ctx.fill();
+      }else{
+        ctx.fillStyle="#df6f64";ctx.beginPath();ctx.moveTo(this.x,480);
+        ctx.lineTo(this.x+10,452);ctx.lineTo(this.x+21,480);ctx.lineTo(this.x+31,452);
+        ctx.lineTo(this.x+42,480);ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
   const baseExtend=Game.extendEndlessTerrain;
   Game.extendEndlessTerrain=function(){
     const result=baseExtend.call(this);
@@ -305,9 +481,18 @@
       // Endless play has no fake exits or trap teleports. Safe traversal
       // portals remain available in the peaceful/zombie obstacle pool.
       this.level.traps=this.level.traps
-        .filter(t=>t.constructor.name!=="DecoyDoor")
-        .map(t=>t.constructor.name==="Teleporter"
-          ?new RiskPortal(t.a.x,t.a.y,t.arcadeSectionEnd):t);
+        .filter(t=>t.constructor.name!=="DecoyDoor"&&
+          !(t.isLiveObject&&t.ttl<=0))
+        .flatMap(t=>{
+          // The old blue DropPortal had a fixed 137 px destination, which was
+          // visible and trivial. In endless it is also an unknown-risk portal.
+          if(t.constructor.name==="DropPortal")
+            return [new RiskPortal(t.x,t.y,t.arcadeSectionEnd)];
+          if(t.constructor.name!=="Teleporter")return [t];
+          const count=3+(Math.abs(Math.floor(t.a.x/360)+(this.endlessSeed||0))%3);
+          return Array.from({length:count},(_,index)=>
+            new RiskPortal(t.a.x+index*52,t.a.y,t.arcadeSectionEnd));
+        });
     }
     return result;
   };
@@ -325,11 +510,12 @@
       this.playerWeapon=new WeaponState();this.botWeapons=new Map();
       this.drops=[];this.projectiles=[];this.nextDropX=1100;this.dropSequence=0;
       this.giftGate=new WeaponState();this.lastHud="";
-      this.addDrop(225,"pistol");
+      this.addDrop(225,Game.endlessKind==="peace"?"glue":"pistol");
     }
     addDrop(x,type){
       if(this.drops.length>=4)return false;
-      const kinds=["pistol","smg","shotgun"];
+      const kinds=Game.endlessKind==="peace"?["glue"]:
+        ["pistol","smg","shotgun","laser","burst","glue"];
       const selected=WEAPONS[type]?type:kinds[this.dropSequence%kinds.length];
       this.dropSequence++;
       this.drops.push({x:Math.max(85,x),y:452,type:selected});return true;
@@ -401,7 +587,12 @@
       for(let i=this.projectiles.length-1;i>=0;i--){
         const bullet=this.projectiles[i];bullet.x+=bullet.vx*dt;bullet.y+=bullet.vy*dt;bullet.life-=dt;
         let hit=false;
-        for(const horde of g.level.traps.filter(t=>t instanceof ZombieHorde)){
+        if(bullet.type==="glue"&&race){
+          const bot=race.rivals.find(r=>r.alive&&
+            aabb(R(bullet.x-4,bullet.y-3,9,6),R(r.x,r.y,24,32)));
+          if(bot){bot.slowedUntil=Math.max(bot.slowedUntil||0,race.clock+2);hit=true;}
+        }
+        for(const horde of hit?[]:g.level.traps.filter(t=>t instanceof ZombieHorde)){
           const index=horde.zombies.findIndex(z=>aabb(R(bullet.x-3,bullet.y-2,7,4),R(z.x,z.y,22,32)));
           if(index>=0){
             const zombie=horde.zombies[index];zombie.life=(zombie.life||1)-1;
@@ -425,7 +616,8 @@
     solids(){return []}kills(){return []}
     draw(){
       ctx.save();
-      const colors={pistol:"#b9e8ff",smg:"#ffd478",shotgun:"#efa78f"};
+      const colors={pistol:"#b9e8ff",smg:"#ffd478",shotgun:"#efa78f",
+        laser:"#ff8fda",burst:"#d5b2ff",glue:"#83e2d1"};
       for(const drop of this.drops){
         ctx.fillStyle=colors[drop.type];ctx.fillRect(drop.x-11,drop.y-7,22,7);
         ctx.fillRect(drop.x+2,drop.y,5,8);
@@ -447,22 +639,138 @@
     }
   }
 
+  function announceEvent(message){
+    feedback(message);
+    const toast=byId("live-event-toast");
+    if(toast){toast.textContent=message;toast.classList.remove("hidden");
+      if(typeof setTimeout==="function")setTimeout(()=>toast.classList.add("hidden"),1800);}
+  }
+  function liveRace(){
+    return Game.level?.traps.find(t=>t.constructor?.name==="CompetitionTraining");
+  }
+  function liveLeader(){
+    const race=liveRace();
+    return Math.max(Game.player?.x||55,...(race?.rivals||[]).filter(b=>b.alive).map(b=>b.x));
+  }
+  function floorPointAhead(distance=210){
+    const leader=liveLeader(),target=leader+distance;
+    const floors=(Game.level?.solids||[]).filter(s=>s.y===480&&s.w>=80&&
+      s.x+s.w>=leader+90);
+    floors.sort((a,b)=>Math.abs((a.x+a.w/2)-target)-Math.abs((b.x+b.w/2)-target));
+    const floor=floors[0];
+    return floor?Math.max(floor.x+18,Math.min(target,floor.x+floor.w-70)):null;
+  }
+  function addTemporaryHorde(){
+    let horde=Game.level.traps.find(t=>t instanceof ZombieHorde);
+    if(!horde){
+      horde=new ZombieHorde({speed:168,spawnEvery:99,maxZombies:28,initialDelay:99});
+      Game.level.traps.push(horde);
+    }
+    horde.maxZombies=28;
+    const race=liveRace();
+    const positions=[Game.player?.x,...(race?.rivals||[]).filter(b=>b.alive).map(b=>b.x)];
+    const count=Math.min(14,28-horde.zombies.length);
+    let added=0;
+    for(let index=0;index<count;index++){
+      const base=chooseBehindSpawn(positions,Game.level.solids,horde.spawned+index);
+      if(base===null)break;
+      const x=base-Math.floor(index/4)*8;
+      const body=R(x,448,22,32);
+      const blocked=Game.level.traps.some(t=>t!==horde&&typeof t.kills==="function"&&
+        t.kills().some(hit=>aabb(body,hit)));
+      if(blocked)continue;
+      horde.zombies.push({x,y:448,vy:0,grounded:true,face:1,life:1,anim:0,
+        bornAt:Game.time,autoShootReadyAt:Game.time+2.3,spawnT:1.15,
+        ttl:12+(index%4)});
+      horde.spawned++;added++;
+    }
+    return added;
+  }
+  function applyLiveEffect(effect){
+    if(Game.arcadeMode!=="endless"||Game.state!=="play")return false;
+    const objects=Game.level.traps.filter(t=>t.isLiveObject&&t.ttl>0);
+    if(["portal","obstacle"].includes(effect)&&
+       objects.length>=LIVE_LIMITS.maxRuntimeObjects)return false;
+    if(effect==="life"){
+      if(Game.hearts>=(Game.maxHearts||10)){
+        announceEvent("Vida já está no máximo de 10.");return false;
+      }
+      Game.hearts=Math.min(Game.maxHearts||10,Game.hearts+1);
+      const heart=byId("arcade-hearts");
+      if(heart)heart.textContent="♥ "+Game.hearts+"/"+(Game.maxHearts||10);
+      announceEvent("ROSA: +1 vida (máximo 10).");return true;
+    }
+    if(effect==="portal"){
+      const x=floorPointAhead(190);if(x===null)return false;
+      Game.level.traps.push(new LiveSurprisePortal(x,416,x+700));
+      announceEvent("Portal surpresa avisado à frente do líder.");return true;
+    }
+    if(effect==="obstacle"){
+      const x=floorPointAhead(245);if(x===null)return false;
+      const kinds=["wall","saw","hole","spike","other"];
+      const type=kinds[Math.floor(Math.random()*kinds.length)];
+      Game.level.traps.push(new LiveObstacle(x,type,x+700));
+      announceEvent("Obstáculo "+type+" telegrafado à frente.");return true;
+    }
+    if(effect==="horde"){
+      if(Game.endlessKind==="peace"){
+        // Peaceful infinite must never become a lethal zombie mode because
+        // of a live gift: use a temporary non-lethal slowdown wave instead.
+        const race=liveRace();if(!race?.rivals.length)return false;
+        for(const bot of race.rivals)
+          bot.slowedUntil=Math.max(bot.slowedUntil||0,race.clock+3);
+        announceEvent("Onda de lentidão: rivais atrasados por 3 s, sem mortes.");
+        return true;
+      }
+      const added=addTemporaryHorde();
+      if(!added)return false;
+      announceEvent("Horda gigante temporária: "+added+" zumbis atrás.");return true;
+    }
+    if(effect==="weapon"){
+      const type=Game.endlessKind==="peace"?"glue":
+        (effectSequence++%2?"burst":"laser");
+      const added=Game.liveWeapons?.addDrop(liveLeader()+135,type)||false;
+      if(added)announceEvent("Arma extra "+type.toUpperCase()+" liberada.");
+      return added;
+    }
+    if(effect==="power"){
+      const race=liveRace();if(!race?.rivals.length)return false;
+      for(const bot of race.rivals)
+        bot.slowedUntil=Math.max(bot.slowedUntil||0,race.clock+2);
+      announceEvent("Poder de cola: rivais atrasados por 2 s, sem dano.");return true;
+    }
+    return false;
+  }
+  function triggerEffect(effect,now=clockMs()/1000,source="simulator"){
+    if(!["life","portal","obstacle","horde","weapon","power"].includes(effect))return false;
+    if(!eventGate.allow(effect,now)){
+      announceEvent("Evento "+effect+" bloqueado por cooldown.");return false;
+    }
+    if(Game.arcadeMode!=="endless"||Game.state!=="play"){
+      if(pendingEffects.length>=8){
+        announceEvent("Fila de eventos cheia; aguarde a próxima partida.");return false;
+      }
+      pendingEffects.push(effect);
+      announceEvent((source==="gift"?"Gift":"Evento simulado")+
+        " agendado para a próxima partida infinita.");return true;
+    }
+    const applied=applyLiveEffect(effect);
+    if(!applied&&effect!=="life")
+      announceEvent("Evento "+effect+" não pôde ser aplicado com segurança agora.");
+    return applied;
+  }
+
+  for(const [id,effect] of Object.entries({
+    "simulate-rose":"life","simulate-portal":"portal",
+    "simulate-obstacle":"obstacle","simulate-horde":"horde",
+    "simulate-weapon":"weapon","simulate-power":"power",
+  }))byId(id)?.addEventListener("click",()=>triggerEffect(effect));
+
   Game.startEndless=function(){
     if((this.requestedEndlessKind||"peace")==="competition")lobby.ensureMinimum(clockMs());
-    this.liveWeaponsEnabled=(this.requestedEndlessKind==="zombies")
-      ?!!byId("zombie-weapons")?.checked
-      :((this.requestedEndlessKind==="competition")&&this.competitionWithZombies&&
-        !!byId("competition-weapons")?.checked);
+    this.liveWeaponsEnabled=true;
     const result=baseStartEndless.call(this);
-    const race=this.level.traps.find(t=>t.constructor.name==="CompetitionTraining");
-    if(race){
-      race.rivals=lobby.participants.slice(0,LIVE_LIMITS.maxBots).map((p,i)=>({
-        name:p.name,origin:p.origin,color:palette[i%palette.length],speed:190+(i*23)%54,
-        x:55,y:448,vy:0,vx:0,grounded:true,lives:4,alive:true,
-        respawnTimer:0,protectedUntil:0,jumps:0,deadCount:0,safeX:55,
-        lastY:448,phase:i*1.31,stuckFor:0,
-      }));
-    }
+    const race=syncLiveBots();
     const weaponHud=byId("live-weapon-hud"),fireButton=byId("tc-fire");
     weaponHud?.classList.toggle("hidden",!this.liveWeaponsEnabled);
     fireButton?.classList.toggle("hidden",!this.liveWeaponsEnabled);
@@ -471,10 +779,11 @@
       this.level.traps.push(this.liveWeapons);
       this.liveWeapons.updateHud();
     }else this.liveWeapons=null;
+    while(pendingEffects.length)applyLiveEffect(pendingEffects.shift());
     return result;
   };
   if(typeof setInterval==="function")setInterval(()=>renderLobby(),250);
   renderLobby(0);
-  window.MotocaLive={lobby,addViewer,renderLobby,handleBridgeEvent,
+  window.MotocaLive={lobby,addViewer,renderLobby,handleBridgeEvent,triggerEffect,
     simulated:true,realTikTokTested:false};
 })();

@@ -1,11 +1,12 @@
 /*
  Motoquinha Arcade: lives, earnable coins, zombie survival and competition training.
- Competitions are a LOCAL 3-BOT PROTOTYPE, not real network multiplayer.
+ Competitions and LIVE participants are local 2D bots, not network multiplayer.
  Both game and content remain under the project's MIT terms.
 */
 "use strict";
 (function () {
  const KEY_COINS="motoca_arcade_coins_v1",KEY_LIVES="motoca_arcade_lives_v1";
+ const MAX_LIVES=10;
  const walletEl=document.getElementById("arcade-wallet");
  const heartEl=document.getElementById("arcade-hearts");
  const shop=document.getElementById("arcade-shop");
@@ -17,7 +18,8 @@
    catch{return fallback;}
  };
  Game.coins=Math.max(0,getStore(KEY_COINS,0));
- Game.hearts=Math.max(0,Math.min(4,getStore(KEY_LIVES,4)));
+ Game.maxHearts=MAX_LIVES;
+ Game.hearts=Math.max(0,Math.min(MAX_LIVES,getStore(KEY_LIVES,MAX_LIVES)));
  Game.awardCoins=function(value) {
    if(!Number.isFinite(value)||value<0)return;
    this.coins+=Math.floor(value);
@@ -28,13 +30,12 @@
    try{localStorage.setItem(KEY_LIVES,String(Game.hearts));}catch{}
  }
  function updateHud() {
-   heartEl.textContent="♥".repeat(Math.max(0,Game.hearts))+
-       "♡".repeat(Math.max(0,4-Game.hearts));
+   heartEl.textContent="♥ "+Math.max(0,Game.hearts)+"/"+MAX_LIVES;
    heartEl.classList.toggle("hidden",Game.arcadeMode!=="endless");
    walletEl.textContent="🪙 "+Game.coins;
    const msg="Você tem "+Game.coins+
      " moedas. Nas fases não há limite de vidas. Nos modos infinitos,"+
-     " após perder os 4 corações, continuar custa 20 moedas.";
+     " após perder os 10 corações, continuar custa 20 moedas.";
    document.getElementById("shop-status").textContent=msg;
    document.getElementById("buy-heart").classList.add("hidden");
    document.getElementById("lives-buy").disabled=Game.coins<20;
@@ -62,7 +63,7 @@
  document.getElementById("lives-menu").addEventListener("click",showMenu);
  document.getElementById("lives-restart").addEventListener("click",()=>{
    noLives.classList.add("hidden");
-   Game.hearts=4;
+   Game.hearts=MAX_LIVES;
    Game.startEndless();
  });
 
@@ -91,15 +92,15 @@
    this.endlessKind=this.requestedEndlessKind||"peace";
    document.getElementById("race-standings").classList.toggle("hidden",
      this.endlessKind!=="competition");
-   this.hearts=4;
+   this.hearts=MAX_LIVES;
    this.lastSafeX=55;
    this.invulnerableUntil=0;
    this.respawnTimer=0;
    if(this.endlessKind==="zombies"){
      const hard=this.zombieDifficulty==="hard";
      this.level.traps.push(new ZombieHorde({
-       speed:hard?224:154,spawnEvery:hard?1.85:3.1,
-       maxZombies:hard?7:4,initialDelay:hard?1.65:2.5}));
+       speed:hard?224:154,spawnEvery:hard?.72:2.2,
+       maxZombies:hard?16:7,initialDelay:hard?1.2:2.2}));
      document.getElementById("hud-levelname").textContent=
        hard?"ZUMBIS · DIFÍCIL":"ZUMBIS · FÁCIL";
    } else if(this.endlessKind==="competition") {
@@ -193,7 +194,7 @@
      this.respawnTimer-=dt;
      if(this.respawnTimer<=0) {
        if(this.hearts<=0&&this.endlessKind==="competition")
-         this.showCompetitionResult("Você perdeu suas quatro vidas");
+         this.showCompetitionResult("Você perdeu suas dez vidas");
        else if(this.hearts<=0) {
          this.state="livesOut";
          hudEl.classList.add("hidden");
@@ -234,7 +235,7 @@
        {name:"Motoca Roxo",color:"#d4a3e8",speed:232},
        {name:"Motoca Amarelo",color:"#e6d178",speed:194},
      ].map((b,i)=>({...b,x:55,y:448,vy:0,vx:0,grounded:true,
-       lives:4,alive:true,respawnTimer:0,protectedUntil:0,jumps:0,deadCount:0,
+       lives:MAX_LIVES,alive:true,respawnTimer:0,protectedUntil:0,jumps:0,deadCount:0,
        safeX:55,lastY:448,phase:i*1.31}));
    }
    reset(){}
@@ -294,14 +295,24 @@
            h.y<bot.y+43&&h.y+h.h>bot.y-17));
        const wallAhead=solids.some(s=>s.y+s.h>bot.y+17&&s.y<bot.y+32&&
          s.x>bot.x+19&&s.x<bot.x+87);
+       const riskPortal=g.level.traps.find(t=>t.isRiskPortal&&
+         t.x>bot.x-8&&t.x<bot.x+105);
+       let takesPortal=false;
+       if(riskPortal){
+         const chance=(Math.sin(riskPortal.x*.071+bot.phase*3.1)+1)/2;
+         takesPortal=chance<.46&&bot.lives>1;
+         bot.portalChoice=takesPortal?"risk":"avoid";
+       }
        const needsGapJump=playerFloor&&edgeDistance<78&&
          edgeDistance>-18&&gap>15;
-       const shouldJump=bot.grounded&&(needsGapJump||wallAhead||danger);
+       const shouldJump=bot.grounded&&(needsGapJump||wallAhead||danger||
+         (riskPortal&&!takesPortal));
        if(shouldJump){
          bot.vy=-750;bot.grounded=false;bot.jumps++;
        }
        const oldX=bot.x,oldY=bot.y;
-       const travel=bot.speed*(1+.045*Math.sin(this.clock+bot.phase))*dt;
+       const slowFactor=this.clock<(bot.slowedUntil||0)?.46:1;
+       const travel=bot.speed*slowFactor*(1+.045*Math.sin(this.clock+bot.phase))*dt;
        bot.x+=travel;
        bot.vy=Math.min(950,bot.vy+2150*dt);
        bot.y+=bot.vy*dt;
@@ -331,10 +342,13 @@
        if(bot.stuckFor>1.1&&bot.grounded){
          bot.vy=-770;bot.grounded=false;bot.stuckFor=0;bot.jumps++;
        }
+       if(riskPortal&&takesPortal&&typeof riskPortal.transport==="function")
+         riskPortal.transport(bot,g);
        if(this.botHit(bot,g))this.loseLife(bot,g);
      }
      const stand=document.getElementById("race-standings");
-     if(stand && this.clock-(this.lastHudUpdate||0)>.15) {
+     if(stand && g.endlessKind==="competition"&&
+       this.clock-(this.lastHudUpdate||0)>.15) {
        this.lastHudUpdate=this.clock;
        stand.classList.remove("hidden");
        const positions=[
@@ -372,8 +386,17 @@
      ctx.save();
      for(const b of this.rivals){
        if(!b.alive||b.respawnTimer>0)continue;
+       const camera=Game.cameraX||0;
+       if(b.x<camera-90||b.x>camera+1050)continue;
        ctx.globalAlpha=b.protectedUntil>this.clock?.48:.75;
        ctx.fillStyle=b.color;roundRect(b.x,b.y,24,32,5);ctx.fill();
+       ctx.fillStyle="#f7fbf1";ctx.fillRect(b.x+4,b.y+7,6,7);
+       ctx.fillRect(b.x+14,b.y+7,6,7);
+       ctx.fillStyle="#17251e";ctx.fillRect(b.x+6,b.y+9,2,3);
+       ctx.fillRect(b.x+16,b.y+9,2,3);
+       if(this.clock<(b.slowedUntil||0)){
+         ctx.strokeStyle="#9be6d8";ctx.lineWidth=2;ctx.strokeRect(b.x-3,b.y-3,30,38);
+       }
        ctx.globalAlpha=.85;ctx.fillStyle=theme.paper;
        ctx.font="10px "+FONT;ctx.fillText(
          b.name+" ♥"+b.lives,b.x-14,b.y-9);
@@ -381,6 +404,7 @@
      ctx.restore();
    }
  }
+ Game.CompetitionTraining=CompetitionTraining;
 
  Game.showCompetitionResult=function(reason) {
    if(this.state==="competitionResult")return;
@@ -428,7 +452,7 @@
    zombieSettings.classList.add("hidden");
    document.getElementById("race-standings").classList.add("hidden");
    if(Game.hideLabOverlays)Game.hideLabOverlays();
-   Game.hearts=4;
+   Game.hearts=MAX_LIVES;
    const result=menuOriginal();
    updateHud();
    return result;
