@@ -2015,8 +2015,7 @@ const Game = {
     }
   },
 
-  drawPlayer() {
-    const p = this.player;
+  drawPlayer(p = this.player, bodyColor = null) {
     const squashY = p.squash > 0 ? 1 - p.squash * 2.2 : 1;
     const stretchY = !p.grounded ? clamp(1 + Math.abs(p.vy) / 2600, 1, 1.18) : squashY;
     const sx = 1 / stretchY;
@@ -2037,7 +2036,7 @@ const Game = {
     ctx.translate(cx, by);
     ctx.scale(sx, stretchY);
 
-    ctx.fillStyle = theme.ink;
+    ctx.fillStyle = bodyColor || theme.ink;
     roundRect(-p.w / 2, -p.h, p.w, p.h, 7);
     ctx.fill();
 
@@ -2056,7 +2055,7 @@ const Game = {
 
     ctx.restore();
 
-    if (p.grounded && Math.abs(p.vx) > 180 && Math.random() < 0.25) {
+    if (p === this.player && p.grounded && Math.abs(p.vx) > 180 && Math.random() < 0.25) {
       spawnDust(p.x + p.w / 2 - p.face * 10, p.y + p.h, 1);
     }
   },

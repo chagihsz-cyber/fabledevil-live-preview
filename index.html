@@ -117,7 +117,8 @@
     <label><input type="radio" name="zombie-difficulty" value="easy" checked> Fácil — perseguição moderada (154)</label>
     <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — 12–18 zumbis velozes em ação</label>
     <label><input id="zombie-main-bot" type="checkbox"> 🤖 Personagem principal controlado por bot</label>
-    <label><input id="zombie-weapons" type="checkbox"> Ativar ARMAS com munição limitada</label>
+    <p>🔫 Armas disponíveis automaticamente para todos, com munição limitada e drops durante a partida.</p>
+    <input id="zombie-weapons" type="hidden" value="always-on">
     <button id="zombie-start" type="button">COMEÇAR</button>
     <button id="zombie-back" type="button">FECHAR</button>
   </div>
@@ -223,14 +224,14 @@
 
 
 
-<script src="game.js?v=arcade9"></script>
+<script src="game.js?v=live-v3"></script>
 <script src="dynamic_traps.js?v=arcade9"></script>
 <script src="stage_mechanics.js?v=arcade9"></script>
 <script src="campaign_chapter2.js?v=arcade9"></script>
 <script src="arcade_modes.js?v=arcade9"></script>
 <script src="lab_chambers.js?v=arcade9"></script>
-<script src="adventure_modes.js?v=live-v2"></script>
-<script src="live_modes.js?v=live-v2"></script>
+<script src="adventure_modes.js?v=live-v3"></script>
+<script src="live_modes.js?v=live-v3"></script>
 <script src="player_autopilot.js?v=live-v2"></script>
 </body>
 </html>

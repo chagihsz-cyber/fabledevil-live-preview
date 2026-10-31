@@ -231,16 +231,17 @@
    constructor(type) {
      this.type=type;this.clock=0;
      this.rivals=[
-       {name:"Motoca Azul",color:"#79c6ed",speed:208},
-       {name:"Motoca Roxo",color:"#d4a3e8",speed:232},
-       {name:"Motoca Amarelo",color:"#e6d178",speed:194},
-     ].map((b,i)=>({...b,x:55,y:448,vy:0,vx:0,grounded:true,
+       {name:"Motoca Azul",color:"#79c6ed",speed:265},
+       {name:"Motoca Roxo",color:"#d4a3e8",speed:265},
+       {name:"Motoca Amarelo",color:"#e6d178",speed:265},
+     ].map((b,i)=>({...b,x:55,y:448,w:26,h:32,vy:0,vx:0,
+       grounded:true,face:1,squash:0,jumping:false,coyote:0,jumpHold:0,
        lives:MAX_LIVES,alive:true,respawnTimer:0,protectedUntil:0,jumps:0,deadCount:0,
        safeX:55,lastY:448,phase:i*1.31}));
    }
    reset(){}
    botHit(bot,g) {
-     const b=R(bot.x+3,bot.y+3,18,28);
+     const b=R(bot.x+3,bot.y+3,bot.w-6,bot.h-4);
      if(bot.y>H+36 || bot.y< -90)return true;
      for(const trap of g.level.traps) {
        if(trap===this||typeof trap.kills!=="function")continue;
@@ -272,7 +273,8 @@
              floors.reduce((a,b)=>Math.abs(a.x-desired)<Math.abs(b.x-desired)?a:b,
                {x:35,w:140});
            bot.x=Math.max(floor.x+8,Math.min(desired,floor.x+floor.w-35));
-           bot.y=448;bot.vy=0;bot.grounded=true;
+           bot.y=448;bot.vx=0;bot.vy=0;bot.grounded=true;
+           bot.jumping=false;bot.jumpHold=0;bot.squash=0;
            bot.protectedUntil=this.clock+.8;
          }
          continue;
@@ -285,16 +287,16 @@
        }
        const floors=solids.filter(s=>s.y===480&&s.w>35);
        const playerFloor=floors.find(s=>bot.x+12>=s.x&&bot.x+12<s.x+s.w);
-       const edge=playerFloor?playerFloor.x+playerFloor.w:bot.x+24;
-       const edgeDistance=edge-(bot.x+24);
+       const edge=playerFloor?playerFloor.x+playerFloor.w:bot.x+bot.w;
+       const edgeDistance=edge-(bot.x+bot.w);
        const upcoming=floors.filter(s=>s.x>=edge-2).sort((a,b)=>a.x-b.x)[0];
        const gap=upcoming?upcoming.x-edge:Infinity;
        const danger=g.level.traps.some(t=>t!==this&&
          typeof t.kills==="function"&&t.kills().some(h=>
            h.x>bot.x+22&&h.x<bot.x+123&&
            h.y<bot.y+43&&h.y+h.h>bot.y-17));
-       const wallAhead=solids.some(s=>s.y+s.h>bot.y+17&&s.y<bot.y+32&&
-         s.x>bot.x+19&&s.x<bot.x+87);
+       const wallAhead=solids.some(s=>!s.pushable&&s.y+s.h>bot.y+17&&s.y<bot.y+32&&
+         s.x>bot.x+bot.w-5&&s.x<bot.x+87);
        const riskPortal=g.level.traps.find(t=>t.isRiskPortal&&
          t.x>bot.x-8&&t.x<bot.x+105);
        let takesPortal=false;
@@ -307,40 +309,59 @@
          edgeDistance>-18&&gap>15;
        const shouldJump=bot.grounded&&(needsGapJump||wallAhead||danger||
          (riskPortal&&!takesPortal));
-       if(shouldJump){
-         bot.vy=-750;bot.grounded=false;bot.jumps++;
-       }
+       // Match the original protagonist's 265 px/s speed, 2600/1800
+       // ground/air acceleration, -645 jump, 2150 gravity and 980 fall cap.
+       // The AI decides WHEN to jump, never receives extra movement power.
        const oldX=bot.x,oldY=bot.y;
        const slowFactor=this.clock<(bot.slowedUntil||0)?.46:1;
-       const travel=bot.speed*slowFactor*(1+.045*Math.sin(this.clock+bot.phase))*dt;
-       bot.x+=travel;
-       bot.vy=Math.min(950,bot.vy+2150*dt);
-       bot.y+=bot.vy*dt;
-       bot.grounded=false;
-       if(bot.vy>=0){
-         for(const s of solids){
-           if(s.y>=270&&bot.x+24>s.x&&bot.x<s.x+s.w&&
-              oldY+32<=s.y+7&&bot.y+32>=s.y){
-             bot.y=s.y-32;bot.vy=0;bot.grounded=true;break;
-           }
-         }
+       const target=265*slowFactor;
+       const acceleration=bot.grounded?2600:1800;
+       if(target>bot.vx)bot.vx=Math.min(target,bot.vx+acceleration*dt);
+       else if(target<bot.vx)bot.vx=Math.max(target,bot.vx-acceleration*dt);
+       bot.speed=265;
+       bot.face=bot.vx<0?-1:1;
+       if(shouldJump&&bot.grounded){
+         bot.vy=-645;bot.grounded=false;bot.jumping=true;
+         bot.jumpHold=.24;bot.jumps++;
        }
-       // Side collision: never cross walls or teleport to the next segment.
-       for(const wall of solids){
-         if(wall.y>=480 || wall.y+wall.h<=bot.y+3 ||
-            wall.y>=bot.y+31||bot.x+24<=wall.x||bot.x>=wall.x+wall.w)
+       bot.jumpHold=Math.max(0,(bot.jumpHold||0)-dt);
+       if(bot.vy>=0)bot.jumping=false;
+       if(bot.jumpHold<=0&&bot.jumping&&bot.vy<-220){
+         bot.vy=-220;bot.jumping=false;
+       }
+       bot.vy=Math.min(bot.vy+2150*dt,980);
+       bot.x+=bot.vx*dt;
+       for(const solid of solids){
+         if(!aabb(bot,solid))continue;
+         // Same pushable-crate behavior as the original player.
+         if(solid.pushable&&typeof solid.tryPush==='function'&&
+           solid.tryPush(bot.vx*dt,solids)){
+           bot.x=bot.vx>0?solid.x-bot.w:solid.x+solid.w;
            continue;
-         // If coming from the left, stand against the wall and try jumping.
-         if(oldX+24<=wall.x+3){
-           bot.x=wall.x-24;
-           if(bot.vy>=0)bot.vy=-710;
-           bot.jumps++;
+         }
+         if(bot.vx>0)bot.x=solid.x-bot.w;
+         else if(bot.vx<0)bot.x=solid.x+solid.w;
+         bot.vx=0;
+       }
+       bot.y+=bot.vy*dt;
+       const wasGrounded=bot.grounded;
+       bot.grounded=false;
+       for(const solid of solids){
+         if(!aabb(bot,solid))continue;
+         if(bot.vy>0){
+           bot.y=solid.y-bot.h;
+           if(!wasGrounded&&bot.vy>350)bot.squash=.12;
+           bot.vy=0;bot.grounded=true;
+         }else if(bot.vy<0){
+           bot.y=solid.y+solid.h;bot.vy=0;
          }
        }
+       bot.squash=Math.max(0,(bot.squash||0)-dt);
        if(bot.grounded)bot.safeX=bot.x;
        bot.stuckFor=bot.x<=oldX+.2?(bot.stuckFor||0)+dt:0;
        if(bot.stuckFor>1.1&&bot.grounded){
-         bot.vy=-770;bot.grounded=false;bot.stuckFor=0;bot.jumps++;
+         bot.vy=-645;bot.grounded=false;bot.jumping=true;
+         bot.jumpHold=.24;bot.stuckFor=0;bot.jumps++;
        }
        if(riskPortal&&takesPortal&&typeof riskPortal.transport==="function")
          riskPortal.transport(bot,g);
@@ -389,11 +410,7 @@
        const camera=Game.cameraX||0;
        if(b.x<camera-90||b.x>camera+1050)continue;
        ctx.globalAlpha=b.protectedUntil>this.clock?.48:.75;
-       ctx.fillStyle=b.color;roundRect(b.x,b.y,24,32,5);ctx.fill();
-       ctx.fillStyle="#f7fbf1";ctx.fillRect(b.x+4,b.y+7,6,7);
-       ctx.fillRect(b.x+14,b.y+7,6,7);
-       ctx.fillStyle="#17251e";ctx.fillRect(b.x+6,b.y+9,2,3);
-       ctx.fillRect(b.x+16,b.y+9,2,3);
+       Game.drawPlayer(b,b.color);
        if(this.clock<(b.slowedUntil||0)){
          ctx.strokeStyle="#9be6d8";ctx.lineWidth=2;ctx.strokeRect(b.x-3,b.y-3,30,38);
        }

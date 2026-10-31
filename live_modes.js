@@ -195,8 +195,9 @@
 
   function createLiveBot(participant,index){
     return {participantId:participant.id,name:participant.name,origin:participant.origin,
-      viewer:participant.viewer,color:colorFor(index),speed:190+(index*23)%54,
-      x:55,y:448,w:24,h:32,vy:0,vx:0,grounded:true,
+      viewer:participant.viewer,color:colorFor(index),speed:265,
+      x:55,y:448,w:26,h:32,vy:0,vx:0,grounded:true,face:1,
+      squash:0,jumping:false,coyote:0,jumpHold:0,
       lives:Game.maxHearts||10,alive:true,respawnTimer:0,protectedUntil:0,
       jumps:0,deadCount:0,safeX:55,lastY:448,phase:index*1.31,stuckFor:0};
   }
@@ -508,17 +509,26 @@
   class LiveWeaponRuntime {
     constructor(){
       this.playerWeapon=new WeaponState();this.botWeapons=new Map();
-      this.drops=[];this.projectiles=[];this.nextDropX=1100;this.dropSequence=0;
+      this.drops=[];this.projectiles=[];this.nextDropX=760;this.dropSequence=0;
       this.giftGate=new WeaponState();this.lastHud="";
-      this.addDrop(225,Game.endlessKind==="peace"?"glue":"pistol");
+      const starter=Game.endlessKind==="peace"?"glue":"pistol";
+      this.playerWeapon.equip(starter);
+      this.addDrop(240,starter);this.addDrop(480);
     }
     addDrop(x,type){
-      if(this.drops.length>=4)return false;
+      if(this.drops.length>=7)return false;
       const kinds=Game.endlessKind==="peace"?["glue"]:
         ["pistol","smg","shotgun","laser","burst","glue"];
       const selected=WEAPONS[type]?type:kinds[this.dropSequence%kinds.length];
       this.dropSequence++;
-      this.drops.push({x:Math.max(85,x),y:452,type:selected});return true;
+      // Place pickups on real generated floor, never in a procedural pit.
+      const floors=(Game.level?.solids||[]).filter(f=>f.y===480&&f.w>=85);
+      const candidates=floors.map(f=>({
+        x:Math.max(f.x+30,Math.min(x,f.x+f.w-40)),
+      })).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x));
+      const landing=candidates.find(f=>Math.abs(f.x-x)<=350);
+      if(!landing)return false;
+      this.drops.push({x:Math.max(85,landing.x),y:452,type:selected});return true;
     }
     requestGiftDrop(now){
       if(Game.arcadeMode!=="endless"||!Game.liveWeaponsEnabled||
@@ -529,7 +539,11 @@
     }
     stateFor(holder){
       if(holder===Game.player)return this.playerWeapon;
-      if(!this.botWeapons.has(holder))this.botWeapons.set(holder,new WeaponState());
+      if(!this.botWeapons.has(holder)){
+        const equipped=new WeaponState();
+        equipped.equip(Game.endlessKind==="peace"?"glue":"pistol");
+        this.botWeapons.set(holder,equipped);
+      }
       return this.botWeapons.get(holder);
     }
     nearestZombie(holder,g,automatic=false){
@@ -559,6 +573,8 @@
       const state=this.stateFor(holder),target=this.nearestZombie(holder,g,automatic);
       if(!state.type||state.ammo<=0||(!target&&automatic))return false;
       const direction=target?Math.sign(target.zombie.x-holder.x)||1:(holder.face||1);
+      // Bound the global bullet count with 20 participants on mobile.
+      if(this.projectiles.length>=140)return false;
       const shots=state.shoot(g.time);
       for(const shot of shots){
         this.projectiles.push({x:holder.x+(direction>0?(holder.w||24):0),
@@ -572,8 +588,11 @@
       const race=g.level.traps.find(t=>t.constructor.name==="CompetitionTraining");
       const holders=[g.player,...(race?.rivals||[]).filter(b=>b.alive&&b.respawnTimer<=0)];
       const lead=Math.max(...holders.map(h=>h.x));
-      if(lead+420>=this.nextDropX){
-        this.addDrop(this.nextDropX);this.nextDropX+=900;
+      // Regular pickups remain available independently of TikTok gifts.
+      this.drops=this.drops.filter(drop=>drop.x>=lead-1100);
+      while(lead+420>=this.nextDropX){
+        this.addDrop(this.nextDropX);
+        this.nextDropX+=440;
       }
       for(let i=this.drops.length-1;i>=0;i--){
         const drop=this.drops[i];
@@ -629,7 +648,8 @@
       const race=Game.level?.traps.find(t=>t.constructor.name==="CompetitionTraining");
       const holders=[Game.player,...(race?.rivals||[]).filter(b=>b.alive)];
       for(const holder of holders){
-        const state=this.stateFor(holder);if(!state.type||state.ammo<=0)continue;
+        // Keep the equipped gun visible even at zero ammo; HUD shows reload need.
+        const state=this.stateFor(holder);if(!state.type)continue;
         const target=this.nearestZombie(holder,Game);
         const direction=target?Math.sign(target.zombie.x-holder.x)||1:(holder.face||1);
         ctx.fillStyle=colors[state.type];ctx.fillRect(
