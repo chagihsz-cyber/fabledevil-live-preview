@@ -25,9 +25,32 @@
     return {right:true,jump:!!player.grounded&&(jumpGap||wall||hazard||enemy),
       jumpGap,wall,hazard,enemy};
   }
+  function reversedAt(game,player){
+    // The core resets invertControls on every tick, then each ChaosRoom sets
+    // it again. A stale g.invertControls or reverseUntil alone is insufficient.
+    const temporary=game.reverseUntil>game.time&&game.reverseType!=="gravity";
+    const room=game.level.traps.some(t=>t.constructor?.name==="ChaosRoom"&&
+      (t.type==="mirror"||t.type==="chaos")&&
+      player.x+player.w/2>t.x&&player.x+player.w/2<t.x+t.width&&
+      player.y+player.h>t.y&&player.y<t.y+t.h);
+    return !!(temporary||room);
+  }
+  function pendingCratePuzzle(game,player){
+    for(const gate of game.level.traps){
+      if(gate.constructor?.name!=="CrateLockGate"||gate.unlocked||
+        gate.x<player.x-75||gate.x>player.x+465)continue;
+      const crate=game.level.traps.find(t=>t.constructor?.name==="PushCrate"&&
+        t.x<gate.x&&gate.x-t.x<290);
+      if(!crate)continue;
+      // Avoid turning around when the crate already operates its pressure pad.
+      if(crate.x+crate.w>gate.plateX&&crate.x<gate.plateX+gate.plateW)continue;
+      return {crate,gate};
+    }
+    return null;
+  }
   class MainPlayerBrain{
-    constructor(){this.stalled=0;this.lastX=null;this.jumpHold=0;this.jumpCooldown=0;}
-    reset(){this.stalled=0;this.lastX=null;this.jumpHold=0;this.jumpCooldown=0;}
+    constructor(){this.stalled=0;this.lastX=null;this.jumpHold=0;this.jumpCooldown=0;this.crateRecovery=null;this.portalChoices=new WeakMap();}
+    reset(){this.stalled=0;this.lastX=null;this.jumpHold=0;this.jumpCooldown=0;this.crateRecovery=null;this.portalChoices=new WeakMap();}
     next(dt,game){
       const p=game.player;
       const solids=typeof game.collectSolids==="function"?game.collectSolids():game.level.solids;
@@ -40,10 +63,49 @@
           hazards.push({x:trap.x,y:trap.y-28,w:trap.w||40,h:28});
       }
       const decision=decideMove(p,solids,hazards,zombies);
+      const puzzle=pendingCratePuzzle(game,p);
+      let direction=1;
+      if(puzzle){
+        const crate=puzzle.crate;
+        // If we jumped past the crate, go around it and approach from the
+        // left; otherwise push it onto the pressure pad instead of jumping.
+        if(p.x>crate.x-p.w+6)this.crateRecovery=crate;
+        if(this.crateRecovery===crate){
+          if(p.x+p.w<crate.x-60&&p.grounded)this.crateRecovery=null;
+          else {
+            direction=-1;
+            const backDistance=p.x-(crate.x+crate.w);
+            decision.jump=!!p.grounded&&backDistance<108&&backDistance>-38;
+          }
+        }
+        if(direction===1){
+          decision.jump=false;
+          decision.pushCrate=true;
+        }
+      }else this.crateRecovery=null;
+      // Yellow portals conceal their outcome. The bot decides to gamble or
+      // jump past each portal without consulting its eventual destination.
+      if(direction===1&&!puzzle){
+        const portal=game.level.traps.find(t=>t.constructor?.name==="RiskPortal"&&
+          t.x>p.x+p.w-3&&t.x<p.x+p.w+96);
+        if(portal){
+          if(!this.portalChoices.has(portal)){
+            const seed=Math.sin(portal.x*12.9898+(game.endlessSeed||0)*.013)*43758.5453;
+            const risk=(seed-Math.floor(seed))<.43&&(game.hearts??4)>1;
+            this.portalChoices.set(portal,risk);
+          }
+          if(this.portalChoices.get(portal))decision.jump=false;
+          else if(portal.x-(p.x+p.w)<85&&p.grounded)decision.jump=true;
+          decision.portalChoice=this.portalChoices.get(portal)?"risk":"avoid";
+        }
+      }
+      decision.direction=direction;
+      decision.reverseControls=reversedAt(game,p);
       const step=Math.max(0,Math.min(0.05,dt));
       this.jumpCooldown=Math.max(0,this.jumpCooldown-step);
       this.jumpHold=Math.max(0,this.jumpHold-step);
-      if(this.lastX!==null&&p.grounded&&p.x-this.lastX<0.15)
+      if(this.lastX!==null&&p.grounded&&
+        (direction>0?p.x-this.lastX:this.lastX-p.x)<0.15)
         this.stalled=Math.min(2,this.stalled+step);
       else this.stalled=0;
       this.lastX=p.x;
@@ -54,7 +116,7 @@
       return {...decision,jump:this.jumpHold>0};
     }
   }
-  return {decideMove,MainPlayerBrain};
+  return {decideMove,reversedAt,pendingCratePuzzle,MainPlayerBrain};
 });
 
 (function(){
@@ -110,8 +172,9 @@
     const active=enabled&&this.arcadeMode==="endless"&&this.state==="play";
     if(active&&this.player){
       const d=brain.next(dt,this);
-      touch.left=!!(this.reverseUntil>this.time&&this.reverseType==="controls");
-      touch.right=!touch.left;
+      const inputDirection=d.reverseControls?-d.direction:d.direction;
+      touch.left=inputDirection<0;
+      touch.right=inputDirection>0;
       touch.jump=!!d.jump;
       if(d.jumpNow)jumpBuffered=Math.max(jumpBuffered,.12);
       botOwnedInput=true;

@@ -79,6 +79,32 @@
       .sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
     return candidates.length?candidates[0]:null;
   }
+  function chooseRiskPortalLanding(origin, floors, hazards=[], portalEntries=[], random=Math.random){
+    // An undisclosed outcome: helpful forward warp or a costly safe setback.
+    // Landing floors must exist NOW, so the result cannot drop the player
+    // into an ungenerated chunk, a pit, or a lethal trigger.
+    const forward=random()<.5;
+    const direction=forward?1:-1;
+    const minDistance=forward?570:490;
+    const maxDistance=forward?1420:1090;
+    const goal=origin+direction*(minDistance+random()*(maxDistance-minDistance));
+    const candidates=floors.filter(f=>f.y===480&&f.w>=95).map(f=>({
+      floor:f,x:Math.max(f.x+27,Math.min(goal,f.x+f.w-55)),
+    })).filter(({x})=>{
+      const distance=(x-origin)*direction;
+      if(distance<minDistance||distance>maxDistance)return false;
+      const body={x:x-7,y:443,w:44,h:37};
+      if(hazards.some(h=>h.w>0&&h.h>0&&
+        body.x<h.x+h.w&&body.x+body.w>h.x&&
+        body.y<h.y+h.h&&body.y+body.h>h.y))return false;
+      if(portalEntries.some(entry=>Math.abs(entry-x)<94))return false;
+      return true;
+    });
+    if(!candidates.length)return null;
+    candidates.sort((a,b)=>Math.abs(a.x-goal)-Math.abs(b.x-goal));
+    return {x:candidates[0].x,y:480,beneficial:forward,
+      distance:Math.abs(candidates[0].x-origin)};
+  }
   class WeaponState {
     constructor(){this.type=null;this.ammo=0;this.lastShot=-Infinity;this.lastGift=-Infinity;}
     equip(type){
@@ -99,13 +125,13 @@
       this.lastGift=now;return true;
     }
   }
-  return {LIVE_LIMITS,WEAPONS,sanitizeName,LiveLobby,chooseBehindSpawn,WeaponState};
+  return {LIVE_LIMITS,WEAPONS,sanitizeName,LiveLobby,chooseBehindSpawn,chooseRiskPortalLanding,WeaponState};
 });
 
 /* Browser adapter. It is intentionally additive and only wraps endless mode. */
 (function () {
   if(typeof document==="undefined"||typeof Game==="undefined")return;
-  const {LIVE_LIMITS,LiveLobby,chooseBehindSpawn,sanitizeName,WeaponState,WEAPONS}=MotocaLiveCore;
+  const {LIVE_LIMITS,LiveLobby,chooseBehindSpawn,chooseRiskPortalLanding,sanitizeName,WeaponState,WEAPONS}=MotocaLiveCore;
   const lobby=new LiveLobby();
   const byId=id=>document.getElementById(id);
   const rosterEl=byId("live-roster"),countEl=byId("live-roster-count");
@@ -215,17 +241,73 @@
     const blocked=g.level.traps.some(t=>t!==this&&typeof t.kills==="function"&&
       t.kills().some(hit=>aabb(hitbox,hit)));
     if(blocked)return false;
-    this.zombies.push({x,y:448,vy:0,grounded:true,face:1,life:1,anim:0,spawnT:.55});
+    this.zombies.push({x,y:448,vy:0,grounded:true,face:1,life:1,anim:0,
+      bornAt:g.time,autoShootReadyAt:g.time+2.3,spawnT:1.15});
     this.spawned++;return true;
   };
 
+  class RiskPortal {
+    constructor(x,y,sectionEnd){
+      this.x=x;this.y=y;this.w=30;this.h=48;
+      this.arcadeSectionEnd=sectionEnd;this.cool=0;this.t=0;
+      this.outcome=null;
+    }
+    reset(){this.cool=0;this.t=0;this.outcome=null;}
+    update(dt,g){
+      this.t+=dt;this.cool=Math.max(0,this.cool-dt);
+      if(this.cool>0||g.state!=="play")return;
+      const p=g.player;
+      if(!aabb(p,R(this.x,this.y,this.w,this.h)))return;
+      this.cool=1.4;
+      const lethal=[];
+      const otherPortals=[];
+      for(const trap of g.level.traps){
+        if(trap!==this&&typeof trap.kills==="function")lethal.push(...trap.kills());
+        if(trap.constructor?.name==="RiskPortal")otherPortals.push(trap.x);
+        if(Array.isArray(trap.zombies)){
+          for(const zombie of trap.zombies)
+            lethal.push(R(zombie.x-34,zombie.y-14,90,65));
+        }
+      }
+      // Protect even from temporarily inactive spikes and solid obstacles.
+      for(const trap of g.level.traps){
+        if(trap.constructor?.name==="PopSpikes")
+          lethal.push(R(trap.x,trap.y-36,trap.w||44,36));
+      }
+      for(const solid of g.collectSolids()){
+        if(solid.y<480&&solid.y+solid.h>443)lethal.push(solid);
+      }
+      const target=chooseRiskPortalLanding(p.x,g.level.solids,lethal,
+        otherPortals,Math.random);
+      if(!target)return;
+      p.x=target.x;p.y=target.y-p.h;p.vx=0;p.vy=0;
+      p.grounded=true;p.jumping=false;p.coyote=0;
+      this.outcome=target.beneficial?"help":"setback";
+      if(typeof AudioFX!=="undefined")AudioFX.poof();
+    }
+    solids(){return []}
+    kills(){return []}
+    draw(){
+      ctx.save();ctx.translate(this.x+this.w/2,this.y+this.h/2);
+      const glow=.12+.09*Math.sin(this.t*3);
+      ctx.strokeStyle="#f8ba54";ctx.fillStyle="rgba(252,181,61,"+glow+")";
+      ctx.lineWidth=3.5;ctx.beginPath();
+      ctx.ellipse(0,0,14,22,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+      ctx.fillStyle="#fff0b9";ctx.font="bold 20px "+FONT;
+      ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("?",0,0);
+      ctx.restore();
+    }
+  }
   const baseExtend=Game.extendEndlessTerrain;
   Game.extendEndlessTerrain=function(){
     const result=baseExtend.call(this);
     if(this.arcadeMode==="endless"){
       // Endless play has no fake exits or trap teleports. Safe traversal
       // portals remain available in the peaceful/zombie obstacle pool.
-      this.level.traps=this.level.traps.filter(t=>t.constructor.name!=="DecoyDoor");
+      this.level.traps=this.level.traps
+        .filter(t=>t.constructor.name!=="DecoyDoor")
+        .map(t=>t.constructor.name==="Teleporter"
+          ?new RiskPortal(t.a.x,t.a.y,t.arcadeSectionEnd):t);
     }
     return result;
   };
@@ -264,18 +346,31 @@
       if(!this.botWeapons.has(holder))this.botWeapons.set(holder,new WeaponState());
       return this.botWeapons.get(holder);
     }
-    nearestZombie(holder,g){
+    nearestZombie(holder,g,automatic=false){
       let best=null,bestDistance=Infinity;
+      const limit=automatic?175:430;
+      const shootY=holder.y+14;
       for(const horde of g.level.traps.filter(t=>t instanceof ZombieHorde)){
         for(const zombie of horde.zombies){
           const distance=Math.abs(zombie.x-holder.x);
-          if(distance<bestDistance&&distance<430){best={horde,zombie};bestDistance=distance;}
+          if(distance>=bestDistance||distance>limit)continue;
+          if(automatic){
+            // Do not snipe enemies still materializing. React only to an
+            // active enemy in nearby range with a clear horizontal shot.
+            if(zombie.spawnT>0||(zombie.autoShootReadyAt??-Infinity)>g.time)continue;
+            if(shootY<zombie.y-9||shootY>zombie.y+33)continue;
+            const x1=Math.min(holder.x+12,zombie.x+11),
+              x2=Math.max(holder.x+12,zombie.x+11);
+            if(g.level.solids.some(s=>s.y<=shootY&&s.y+s.h>=shootY&&
+              s.x<x2-8&&s.x+s.w>x1+8))continue;
+          }
+          best={horde,zombie};bestDistance=distance;
         }
       }
       return best;
     }
     fire(holder,g,automatic=false){
-      const state=this.stateFor(holder),target=this.nearestZombie(holder,g);
+      const state=this.stateFor(holder),target=this.nearestZombie(holder,g,automatic);
       if(!state.type||state.ammo<=0||(!target&&automatic))return false;
       const direction=target?Math.sign(target.zombie.x-holder.x)||1:(holder.face||1);
       const shots=state.shoot(g.time);
