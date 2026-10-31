@@ -39,6 +39,10 @@
     </div>
   </div>
 
+  <div id="player-auto-controls" class="hidden" aria-label="Controle do personagem principal">
+    <button id="player-bot-switch" type="button" aria-pressed="false">🎮 JOGAR MANUAL</button>
+  </div>
+
   <!-- MENU -->
   <div id="menu">
     <div class="menu-inner">
@@ -60,6 +64,7 @@
         <button id="competition-btn" type="button">🏁 COMPETIÇÃO (TESTE LOCAL)</button>
         <button id="challenge-btn" type="button">⚙ TESTAR ARMADILHAS NOVAS</button>
       </div>
+      <label class="main-player-option" for="main-player-bot"><input id="main-player-bot" type="checkbox"> 🤖 Personagem principal automático <small>(mesmo personagem)</small></label>
       <p class="modes-info">54 fases: 24 aventuras novas depois da fase 30 · + desafios infinitos · quatro vidas e moedas</p>
       <button type="button" id="shop-btn">🪙 LOJA DE VIDAS</button>
       <div class="grid-label">levels</div>
@@ -77,6 +82,7 @@
     <p>Escolha a dificuldade. No fácil, eles perseguem mais devagar e aparecem menos.</p>
     <label><input type="radio" name="zombie-difficulty" value="easy" checked> Fácil — perseguição moderada (154)</label>
     <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — enxame veloz (224)</label>
+    <label><input id="zombie-main-bot" type="checkbox"> 🤖 Personagem principal controlado por bot</label>
     <label><input id="zombie-weapons" type="checkbox"> Ativar ARMAS com munição limitada</label>
     <button id="zombie-start" type="button">COMEÇAR</button>
     <button id="zombie-back" type="button">FECHAR</button>
@@ -120,6 +126,7 @@
       <option value="last">Último sobrevivente</option>
       <option value="distance">Maior distância em 60 s</option>
     </select></label>
+    <label><input id="competition-main-bot" type="checkbox"> 🤖 Personagem principal controlado por bot</label>
     <label><input id="competition-zombies" type="checkbox"> Com zumbis</label>
     <label><input id="competition-weapons" type="checkbox"> ARMAS (pistola, SMG e escopeta)</label>
     <button type="button" id="competition-go" disabled>AGUARDANDO 5 BOTS</button>
@@ -208,5 +215,6 @@
 <script src="lab_chambers.js?v=arcade9"></script>
 <script src="adventure_modes.js?v=arcade9"></script>
 <script src="live_modes.js?v=live1"></script>
+<script src="player_autopilot.js?v=autobot1"></script>
 </body>
 </html>

@@ -544,3 +544,22 @@ button#challenge-btn:hover {filter:brightness(1.14)}
  border:1px solid #5b8799;font-size:11px;white-space:nowrap}
 @media(max-width:600px){.live-name-form{grid-template-columns:1fr}.live-name-form label{text-align:center}
  .live-roster{grid-template-columns:repeat(2,minmax(0,1fr))}.arcade-dialog{padding:16px}}
+
+/* Main character: human <-> autonomous bot, same sprite and game rules. */
+.main-player-option{display:flex;align-items:center;justify-content:center;gap:7px;
+  flex-wrap:wrap;padding:8px 12px;margin:4px auto;border-radius:10px;
+  border:1px solid #648b73;background:#233d32;color:#e4efdf;
+  font:750 12px system-ui;cursor:pointer;}
+.main-player-option input{width:17px;height:17px;accent-color:#acd5a2}
+.main-player-option small{font-size:10px;color:#b5c9b3}
+#player-auto-controls{position:absolute;top:55px;left:12px;z-index:24;
+  pointer-events:auto}
+#player-bot-switch{border:1px solid #93b69c;border-radius:9px;
+  padding:8px 10px;background:#233f34eb;color:#e9f5df;
+  font:800 11px system-ui;box-shadow:0 4px 15px #0005;
+  cursor:pointer;min-height:34px}
+#player-bot-switch[aria-pressed="true"]{background:#34572a;color:#e2ffc9;
+  border-color:#c1ed8a}
+#player-bot-switch:focus-visible{outline:3px solid #ffdc91;outline-offset:2px}
+@media(max-width:650px){#player-auto-controls{top:43px;left:7px}
+  #player-bot-switch{font-size:10px;padding:7px}}

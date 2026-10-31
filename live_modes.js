@@ -301,6 +301,7 @@
         if(holder){this.stateFor(holder).equip(drop.type);this.drops.splice(i,1);}
       }
       if(fireRequested){this.fire(g.player,g,false);fireRequested=false;}
+      if(g.autoFireMain)this.fire(g.player,g,true);
       for(const bot of holders.slice(1))this.fire(bot,g,true);
       for(let i=this.projectiles.length-1;i>=0;i--){
         const bullet=this.projectiles[i];bullet.x+=bullet.vx*dt;bullet.y+=bullet.vy*dt;bullet.life-=dt;
