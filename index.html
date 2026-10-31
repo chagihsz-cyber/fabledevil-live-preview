@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#14161d" />
+<title>FABLEDEVIL — a clean little rage game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css?v=arcade9" />
+</head>
+<body>
+<!-- TOP CONTROL BAR (always visible) -->
+<div id="topbar">
+  <button id="btn-theme" class="ic-btn" aria-label="Toggle theme"><span id="ic-theme"></span></button>
+  <button id="btn-mute" class="ic-btn" aria-label="Toggle sound"><span id="ic-mute"></span></button>
+  <button id="btn-fs" class="ic-btn" aria-label="Toggle fullscreen"><span id="ic-fs"></span></button>
+  <button id="btn-back-menu" class="ic-btn hidden" aria-label="Voltar ao menu" title="Voltar ao menu">⌂</button>
+</div>
+
+<div id="stage">
+  <canvas id="game" width="960" height="540"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <span id="hud-levelnum" class="pill">1</span>
+      <span id="hud-levelname">NOTHING TO SEE HERE</span>
+    </div>
+    <div class="hud-right">
+      <span class="skull">&#9760;</span><span id="hud-deaths">0</span>
+      <span id="arcade-distance" class="hidden">0 m</span>
+      <span id="arcade-hearts" class="hearts-indicator">♥♥♥♥</span>
+      <span id="arcade-wallet" class="coins-indicator">🪙 0</span>
+      <span id="live-weapon-hud" class="hidden" aria-live="polite">SEM ARMA</span>
+      <span id="arcade-effect" class="hidden" aria-live="off">⚡</span>
+      <span class="hint">R&nbsp;restart</span>
+    </div>
+  </div>
+
+  <!-- MENU -->
+  <div id="menu">
+    <div class="menu-inner">
+      <div class="devil-face">
+        <div class="horn left"></div>
+        <div class="horn right"></div>
+        <div class="face">
+          <div class="eye l"></div>
+          <div class="eye r"></div>
+          <div class="grin"></div>
+        </div>
+      </div>
+      <h1 class="title"><span class="t-fable">FABLE</span><span class="t-devil">DEVIL</span></h1>
+      <p class="subtitle">a clean little rage game. promise. <span class="wink">;)</span></p>
+      <div class="arcade-modes">
+        <button id="play-btn" type="button">FASES · JOGAR</button>
+        <button id="endless-btn" type="button">♾ INFINITO PACÍFICO</button>
+        <button id="zombie-btn" type="button">🧟 INFINITO ZUMBIS — FÁCIL / DIFÍCIL</button>
+        <button id="competition-btn" type="button">🏁 COMPETIÇÃO (TESTE LOCAL)</button>
+        <button id="challenge-btn" type="button">⚙ TESTAR ARMADILHAS NOVAS</button>
+      </div>
+      <p class="modes-info">54 fases: 24 aventuras novas depois da fase 30 · + desafios infinitos · quatro vidas e moedas</p>
+      <button type="button" id="shop-btn">🪙 LOJA DE VIDAS</button>
+      <div class="grid-label">levels</div>
+      <div id="level-grid"></div>
+      <div id="level-pagination" aria-label="Navegar pelas páginas de fases"></div>
+      <p class="menu-deaths">total deaths: <span id="menu-deaths">0</span></p>
+      <p class="controls-hint">&larr; &rarr; / A D move &nbsp;&middot;&nbsp; &uarr; / W / SPACE jump &nbsp;&middot;&nbsp; T theme</p>
+    </div>
+  </div>
+
+  <div id="race-standings" class="hidden" aria-label="Classificação da corrida"></div>
+  <!-- Economy and competition are prototypes local to the browser. -->
+  <div id="zombie-settings" class="arcade-dialog hidden" role="dialog" aria-label="Escolher dificuldade dos zumbis">
+    <h2>🧟 SOBREVIVÊNCIA ZUMBI</h2>
+    <p>Escolha a dificuldade. No fácil, eles perseguem mais devagar e aparecem menos.</p>
+    <label><input type="radio" name="zombie-difficulty" value="easy" checked> Fácil — perseguição moderada (154)</label>
+    <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — enxame veloz (224)</label>
+    <label><input id="zombie-weapons" type="checkbox"> Ativar ARMAS com munição limitada</label>
+    <button id="zombie-start" type="button">COMEÇAR</button>
+    <button id="zombie-back" type="button">FECHAR</button>
+  </div>
+  <div id="arcade-shop" class="arcade-dialog hidden" role="dialog" aria-label="Moedas e continuação">
+    <h2>🪙 MOEDAS E CONTINUAÇÃO</h2>
+    <p id="shop-status">Compre mais uma vida com moedas ganhas jogando.</p>
+    <button type="button" id="buy-heart">COMPRAR +1 VIDA — 20 MOEDAS</button>
+    <button type="button" id="shop-close">FECHAR</button>
+  </div>
+  <div id="arcade-out-of-lives" class="arcade-dialog hidden" role="dialog" aria-label="Sem vidas">
+    <h2>FICOU SEM VIDAS!</h2>
+    <p id="out-lives-caption">Use moedas para continuar no mesmo percurso ou comece uma nova partida.</p>
+    <button type="button" id="lives-buy">CONTINUAR — 20 MOEDAS</button>
+    <button type="button" id="lives-restart">RECOMEÇAR — 4 VIDAS</button>
+    <button type="button" id="lives-menu">VOLTAR AO MENU</button>
+  </div>
+  <div id="competition-settings" class="arcade-dialog hidden" role="dialog" aria-label="Treino de competição">
+    <h2>🏁 LABORATÓRIO LIVE 2D</h2>
+    <p>Adicione espectadores no simulador. Após 15 s sem nomes novos, o sistema completa até 5 bots.</p>
+    <div class="live-status-row">
+      <strong id="live-status" class="live-status simulated">● SIMULADO</strong>
+      <span id="live-roster-count">0/12 participantes</span>
+      <span id="live-countdown" role="timer">completa em 15 s</span>
+    </div>
+    <form id="live-name-form" class="live-name-form">
+      <label for="live-name">Nome do bot</label>
+      <input id="live-name" maxlength="40" autocomplete="off" placeholder="Ex.: Maria" required>
+      <button type="submit">ADICIONAR BOT</button>
+    </form>
+    <div class="live-simulator" aria-label="Simulador de eventos">
+      <button id="simulate-like" type="button">♥ CURTIDA</button>
+      <button id="simulate-comment" type="button">💬 “!ENTRAR”</button>
+      <button id="simulate-gift" type="button">🎁 PRESENTE</button>
+      <button id="live-connect" type="button">CONECTAR PONTE LOCAL</button>
+    </div>
+    <p id="live-feedback" class="live-feedback" aria-live="polite">Simulador pronto. Nenhuma rede externa será aberta.</p>
+    <ol id="live-roster" class="live-roster" aria-label="Bots inscritos"></ol>
+    <label>Objetivo <select id="competition-type">
+      <option value="race">Corrida até 350 m</option>
+      <option value="last">Último sobrevivente</option>
+      <option value="distance">Maior distância em 60 s</option>
+    </select></label>
+    <label><input id="competition-zombies" type="checkbox"> Com zumbis</label>
+    <label><input id="competition-weapons" type="checkbox"> ARMAS (pistola, SMG e escopeta)</label>
+    <button type="button" id="competition-go" disabled>AGUARDANDO 5 BOTS</button>
+    <button type="button" id="competition-back">VOLTAR AO MENU</button>
+  </div>
+  <div id="competition-results" class="arcade-dialog hidden" role="dialog" aria-label="Resultado da competição">
+    <h2>🏆 RESULTADO DA COMPETIÇÃO</h2>
+    <p id="competition-score">Resultado dos participantes</p>
+    <button type="button" id="competition-again">NOVA PARTIDA</button>
+    <button type="button" id="competition-menu">VOLTAR AO MENU</button>
+  </div>
+
+  <!-- Laboratory: completely separate stages and progress -->
+  <div id="lab-select" class="arcade-dialog hidden" role="dialog" aria-label="Laboratório de armadilhas">
+    <h2>LABORATÓRIO DE ARMADILHAS</h2>
+    <p>Salas independentes para experimentar. Não alteram o progresso das fases.</p>
+    <div id="lab-rooms"></div>
+    <button type="button" id="lab-select-menu">VOLTAR AO MENU</button>
+  </div>
+  <div id="lab-result" class="arcade-dialog hidden" role="dialog" aria-label="Sala concluída">
+    <h2>SALA CONCLUÍDA!</h2>
+    <p id="lab-result-label">Boa! Você encontrou a saída.</p>
+    <button type="button" id="lab-next">PRÓXIMA SALA →</button>
+    <button type="button" id="lab-result-menu">VOLTAR AO MENU</button>
+  </div>
+  <div id="campaign-milestone" class="arcade-dialog hidden" role="dialog" aria-label="Conclusão da fase 30">
+    <h2>30 FASES CONCLUÍDAS!</h2>
+    <p>Você terminou o primeiro capítulo. A campanha continua com novos desafios mistos.</p>
+    <button type="button" id="campaign-next">CONTINUAR NA FASE 31 →</button>
+    <button type="button" id="campaign-milestone-menu">VOLTAR AO MENU</button>
+  </div>
+
+  <!-- ENDLESS RUN RESULT -->
+  <div id="endless-result" class="hidden" role="dialog" aria-label="Resultado do modo infinito">
+    <h2>FIM DE CORRIDA</h2>
+    <p>Você chegou a <strong id="endless-distance">0</strong> metros!</p>
+    <p>Recorde: <strong id="endless-record">0</strong> metros</p>
+    <div class="result-actions">
+      <button id="endless-again" type="button">JOGAR DE NOVO</button>
+      <button id="endless-menu" type="button">VOLTAR AO MENU</button>
+    </div>
+  </div>
+
+  <!-- END SCREEN -->
+  <div id="end-screen" class="hidden">
+    <div class="menu-inner">
+      <h1 class="end-title">YOU BEAT<br>THE DEVIL</h1>
+      <p class="end-sub">...this time.</p>
+      <p class="end-stats">you died <span id="end-deaths">0</span> times. <span id="end-roast"></span></p>
+      <button id="end-menu-btn">BACK TO MENU</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOUCH CONTROLS (mobile only) -->
+<div id="touch-controls" class="hidden">
+  <div class="tc-group tc-move">
+    <button id="tc-left" class="tc-btn" aria-label="Move left">
+      <svg viewBox="0 0 24 24" width="30" height="30"><path d="M15 5 L7 12 L15 19" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button id="tc-right" class="tc-btn" aria-label="Move right">
+      <svg viewBox="0 0 24 24" width="30" height="30"><path d="M9 5 L17 12 L9 19" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+  <div class="tc-group tc-actions">
+    <button id="tc-fire" class="tc-btn tc-small hidden" aria-label="Atirar">F</button>
+    <button id="tc-restart" class="tc-btn tc-small" aria-label="Restart level">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 12 a8 8 0 1 1 2.4 5.7 M4 12 V6 M4 12 H10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button id="tc-jump" class="tc-btn tc-jump" aria-label="Jump">
+      <svg viewBox="0 0 24 24" width="34" height="34"><path d="M5 15 L12 7 L19 15" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- portrait rotate hint -->
+<div id="rotate-hint">↻ rotate your phone for a bigger view</div>
+
+
+
+<script src="game.js?v=arcade9"></script>
+<script src="dynamic_traps.js?v=arcade9"></script>
+<script src="stage_mechanics.js?v=arcade9"></script>
+<script src="campaign_chapter2.js?v=arcade9"></script>
+<script src="arcade_modes.js?v=arcade9"></script>
+<script src="lab_chambers.js?v=arcade9"></script>
+<script src="adventure_modes.js?v=arcade9"></script>
+<script src="live_modes.js?v=live1"></script>
+</body>
+</html>
