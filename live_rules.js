@@ -63,6 +63,12 @@
       enabled:input.enabled!==false,
       cooldown:boundedNumber(input.cooldown,0,3600,0),effects};
     if(rawEvent==="like")rule.likeGoal=Math.floor(boundedNumber(input.likeGoal,1,1000000,100));
+    const powerTypes=new Set(['random','float','haste','phase','shield',
+      'superjump','freeze','magnet']);
+    const gunTypes=new Set(['random','pistol','smg','shotgun','laser','burst',
+      'glue','sniper','flamethrower','shock','ice','railgun']);
+    rule.powerType=powerTypes.has(input.powerType)?input.powerType:'random';
+    rule.weaponType=gunTypes.has(input.weaponType)?input.weaponType:'random';
     if(rawEvent==="gift"){
       rule.giftName=cleanText(input.giftName,40);
       rule.giftId=cleanText(input.giftId,40);

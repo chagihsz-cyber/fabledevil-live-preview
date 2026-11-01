@@ -14,7 +14,9 @@
  const settings=document.getElementById("competition-settings");
  const compResult=document.getElementById("competition-results");
  const zombieModeSettings=difficulty=>difficulty==="hard"
-   ?{speed:282,spawnEvery:.24,maxZombies:42,initialDelay:.8,label:"DIFÍCIL · HORDA GIGANTE"}
+   ?{speed:248,spawnEvery:.16,
+     maxZombies:Game.liveWeaponsEnabled?96:80,initialDelay:.6,
+     label:"DIFÍCIL · "+(Game.liveWeaponsEnabled?96:80)+" ZUMBIS"}
    :{speed:224,spawnEvery:.72,maxZombies:16,initialDelay:1.2,label:"NORMAL"};
  const getStore=(key, fallback)=>{
    try{const v=localStorage.getItem(key);return v===null?fallback:Number(v)||0;}
@@ -261,6 +263,7 @@
    }
    reset(){}
    botHit(bot,g) {
+     if(g.actorPower?.(bot,'shield'))return false;
      const b=R(bot.x+3,bot.y+3,bot.w-6,bot.h-4);
      if(bot.y>H+36 || bot.y< -90)return true;
      for(const trap of g.level.traps) {
@@ -272,11 +275,17 @@
      return false;
    }
    loseLife(bot,g) {
-     if(this.clock<bot.protectedUntil)return;
+     if(this.clock<bot.protectedUntil||g.actorPower?.(bot,'shield'))return;
+     if(g.tournament?.active){
+       bot.lives=0;bot.alive=false;bot.respawnTimer=0;
+       g.tournament.eliminated.add(bot.participantId||bot.name);
+       g.clearActorPowers?.(bot);g.tournament.renderHud();return;
+     }
      bot.lives=Math.max(0,bot.lives-1);
      bot.deadCount++;
      bot.respawnTimer=.5;
      bot.vx=0;bot.vy=0;
+     g.clearActorPowers?.(bot);
      bot.y+=bot.h-32;bot.w=26;bot.h=32;bot.morph=null;
      bot.reverseUntil=0;bot.reverseType=null;bot.reverseSource=null;
      if(bot.lives===0)bot.alive=false;
@@ -372,19 +381,22 @@
        // ground/air acceleration, -645 jump, 2150 gravity and 980 fall cap.
        // The AI decides WHEN to jump, never receives extra movement power.
        const oldX=bot.x,oldY=bot.y;
-       const slowFactor=this.clock<(bot.slowedUntil||0)?.46:1;
+       const slowFactor=(this.clock<(bot.slowedUntil||0)||
+         g.time<(bot.slowedUntilGame||0))?.46:1;
+       const mods=g.actorPowerMods?.(bot)||{speed:1,gravity:1,jump:1};
        const hesitationPhase=(this.clock*1000+(ai.seed%ai.hesitationEveryMs))%
          ai.hesitationEveryMs;
        const hesitating=!decisionKey&&bot.grounded&&hesitationPhase<ai.hesitationMs;
        bot.hesitating=hesitating;
-       const target=(inversionReacting?-70:(hesitating?0:ai.physics.maxSpeed))*slowFactor;
+       const target=(inversionReacting?-70:(hesitating?0:ai.physics.maxSpeed))*
+         slowFactor*(mods.speed||1);
        const acceleration=bot.grounded?ai.physics.groundAcceleration:ai.physics.airAcceleration;
        if(target>bot.vx)bot.vx=Math.min(target,bot.vx+acceleration*dt);
        else if(target<bot.vx)bot.vx=Math.max(target,bot.vx-acceleration*dt);
        bot.speed=ai.physics.maxSpeed;
        bot.face=bot.vx<0?-1:1;
        if(shouldJump&&bot.grounded){
-         bot.vy=ai.physics.jumpVelocity*gravityDir;bot.grounded=false;bot.jumping=true;
+         bot.vy=ai.physics.jumpVelocity*(mods.jump||1)*gravityDir;bot.grounded=false;bot.jumping=true;
          bot.jumpHold=ai.jumpHoldMs/1000;bot.jumps++;
        }
        bot.jumpHold=Math.max(0,(bot.jumpHold||0)-dt);
@@ -393,10 +405,12 @@
          bot.vy=-220*gravityDir;bot.jumping=false;
        }
        bot.vy=gravityDir>0
-         ?Math.min(bot.vy+ai.physics.gravity*dt,ai.physics.fallCap)
-         :Math.max(bot.vy-ai.physics.gravity*dt,-ai.physics.fallCap);
+         ?Math.min(bot.vy+ai.physics.gravity*(mods.gravity||1)*dt,ai.physics.fallCap)
+         :Math.max(bot.vy-ai.physics.gravity*(mods.gravity||1)*dt,-ai.physics.fallCap);
+       if(mods.float&&!bot.grounded&&bot.vy>92)bot.vy=92;
        bot.x+=bot.vx*dt;
        for(const solid of solids){
+         if(g.actorCanPhase?.(bot,solid))continue;
          if(!aabb(bot,solid))continue;
          // Same pushable-crate behavior as the original player.
          if(solid.pushable&&typeof solid.tryPush==='function'&&
@@ -412,6 +426,7 @@
        const wasGrounded=bot.grounded;
        bot.grounded=false;
        for(const solid of solids){
+         if(g.actorCanPhase?.(bot,solid))continue;
          if(!aabb(bot,solid))continue;
          if(bot.vy*gravityDir>0){
            bot.y=gravityDir>0?solid.y-bot.h:solid.y+solid.h;
@@ -425,7 +440,7 @@
        if(bot.grounded)bot.safeX=bot.x;
        bot.stuckFor=bot.x<=oldX+.2?(bot.stuckFor||0)+dt:0;
        if(bot.stuckFor>.85+(ai.seed%500)/1000&&bot.grounded){
-         bot.vy=ai.physics.jumpVelocity*gravityDir;bot.grounded=false;bot.jumping=true;
+         bot.vy=ai.physics.jumpVelocity*(mods.jump||1)*gravityDir;bot.grounded=false;bot.jumping=true;
          bot.jumpHold=ai.jumpHoldMs/1000;bot.stuckFor=0;bot.jumps++;
        }
        if(riskPortal&&takesPortal&&typeof riskPortal.transport==="function")
@@ -433,7 +448,7 @@
        if(this.botHit(bot,g))this.loseLife(bot,g);
      }
      const stand=document.getElementById("race-standings");
-     if(stand&&g.arcadeMode==="endless"&&
+     if(stand&&(g.arcadeMode==="endless"||g.tournament?.active)&&
        this.clock-(this.lastHudUpdate??-Infinity)>=.15) {
        this.lastHudUpdate=this.clock;
        stand.classList.remove("hidden");

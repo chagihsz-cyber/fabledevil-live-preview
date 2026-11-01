@@ -27,12 +27,17 @@
       "fd-horde":"horde","fd-weapon":"weapon","fd-power":"power"}),
   });
   const WEAPONS=Object.freeze({
-    pistol:{ammo:8,cooldown:.36,pellets:1,speed:720,spread:0},
-    smg:{ammo:16,cooldown:.16,pellets:1,speed:760,spread:.025},
-    shotgun:{ammo:5,cooldown:.72,pellets:3,speed:650,spread:.14},
-    laser:{ammo:6,cooldown:.48,pellets:1,speed:940,spread:0},
-    burst:{ammo:9,cooldown:.28,pellets:2,speed:790,spread:.045},
-    glue:{ammo:4,cooldown:1.1,pellets:1,speed:560,spread:0},
+    pistol:{ammo:14,cooldown:.23,pellets:1,speed:780,spread:0,damage:1},
+    smg:{ammo:28,cooldown:.115,pellets:1,speed:815,spread:.025,damage:1},
+    shotgun:{ammo:7,cooldown:.60,pellets:4,speed:660,spread:.12,damage:1},
+    laser:{ammo:10,cooldown:.36,pellets:1,speed:1040,spread:0,damage:2},
+    burst:{ammo:15,cooldown:.25,pellets:3,speed:830,spread:.060,damage:1},
+    glue:{ammo:10,cooldown:.52,pellets:1,speed:630,spread:0,damage:0,stun:2},
+    sniper:{ammo:6,cooldown:.86,pellets:1,speed:1200,spread:0,damage:4,life:1.25},
+    flamethrower:{ammo:18,cooldown:.24,pellets:4,speed:330,spread:.15,damage:1,life:.38},
+    shock:{ammo:11,cooldown:.45,pellets:1,speed:680,spread:0,damage:1,stun:1.6},
+    ice:{ammo:9,cooldown:.51,pellets:2,speed:620,spread:.07,damage:0,stun:2.4},
+    railgun:{ammo:5,cooldown:.95,pellets:1,speed:1280,spread:0,damage:3,pierce:4,life:1.2},
   });
   function sanitizeName(value) {
     return String(value??"").normalize("NFKC")
@@ -281,6 +286,8 @@
       const middle=(spec.pellets-1)/2;
       return Array.from({length:spec.pellets},(_,i)=>({
         speed:spec.speed,angle:(i-middle)*spec.spread,type:this.type,
+        damage:spec.damage??1,stun:spec.stun??0,pierce:spec.pierce??1,
+        life:spec.life??1.15,
       }));
     }
     allowGiftDrop(now){
@@ -353,6 +360,10 @@
       phase:(identity.seed%6283)/1000,stuckFor:0};
   }
   function syncLiveBots(){
+    if(Game.tournament?.active){
+      Game.tournament.syncLobby(lobby.participants);
+      return Game.tournament.race;
+    }
     if(Game.arcadeMode!=="endless"||!Game.level)return null;
     let runtime=Game.level.traps.find(t=>t.constructor?.name==="CompetitionTraining");
     if(!runtime){runtime=new Game.CompetitionTraining("live");Game.level.traps.push(runtime);}
@@ -388,7 +399,7 @@
 
   const effectLabels={bot:"Criar bot",life:"+1 vida",portal:"Portal surpresa",
     obstacle:"Obstáculo",horde:"Horda",weapon:"Arma temporária",
-    power:"Lentidão não letal",voice:"Mensagem de voz"};
+    power:"Poder temporário",voice:"Mensagem de voz"};
   function eventDescription(event){
     if(event.type==="gift")return "presente "+(event.giftName||event.giftId)+" de "+event.user;
     if(event.type==="like")return event.count+" curtidas de "+event.user;
@@ -412,13 +423,14 @@
     }
     speechSynthesis.speak(utterance);lastSpokenAt=now;return true;
   }
-  function applyRuleEffect(effect,event){
+  function applyRuleEffect(effect,event,rule={}){
     if(effect==="bot"){
       const parsed=event.type==="chat"?parseParticipation(event.comment,event.user):null;
       return !!addViewer(parsed?.name||event.user,clockMs(),parsed?.viewer||event.user);
     }
     if(effect==="voice")return speakEvent(event);
-    return triggerEffect(effect,clockMs()/1000,event.source,event);
+    return triggerEffect(effect,clockMs()/1000,event.source,
+      {...event,powerType:rule.powerType,weaponType:rule.weaponType});
   }
   const ruleEngine=new RuleEngine({profile:profileStore.active(),apply:applyRuleEffect});
   function renderHistory(){
@@ -500,6 +512,22 @@
       };
       if(rule.event==="like")addNumber("Meta","likeGoal",1,1000000);
       addNumber("Cooldown (s)","cooldown",0,3600);
+      for(const [key,label,items] of [
+        ['powerType','Tipo de poder',Object.entries(globalThis.FablePowers?.TYPES||{})
+          .map(([type,info])=>[type,info.label])],
+        ['weaponType','Modelo de arma',Object.keys(WEAPONS).map(type=>[type,type.toUpperCase()])]
+      ]){
+        const wrapper=document.createElement('label'),select=document.createElement('select');
+        const caption=document.createElement('span');caption.textContent=label;
+        for(const [value,title] of [['random','Aleatório'],...items]){
+          const option=document.createElement('option');option.value=value;
+          option.textContent=title;select.appendChild(option);
+        }
+        select.value=rule[key]||'random';
+        select.className='live-effect-choice';
+        select.addEventListener('change',()=>saveRule(rule.id,{[key]:select.value}));
+        wrapper.append(caption,select);number.appendChild(wrapper);
+      }
       const actions=document.createElement("div");actions.className="live-rule-actions";
       const test=document.createElement("button");test.type="button";test.className="live-rule-test";
       test.textContent="TESTAR";test.addEventListener("click",()=>processEvent(simulatedEvent(rule)));
@@ -746,7 +774,7 @@
     const variant=byId("endless-variant")?.value||"standard";
     Game.zombieDifficulty=zombie==="hard"?"hard":"normal";
     Game.liveWeaponsEnabled=!!byId("endless-weapons")?.checked;
-    Game.liveAutoFire=!!byId("endless-autofire")?.checked;
+    Game.liveAutoFire=true; // Any equipped character fires at a valid target.
     if(variant==="standard")Game.requestedEndlessKind=zombie==="off"?"peace":"zombies";
     else{
       Game.requestedEndlessKind="competition";Game.competitionType=variant;
@@ -759,7 +787,8 @@
   const baseZombieSpawn=ZombieHorde.prototype.spawn;
   const baseZombieUpdate=ZombieHorde.prototype.update;
   ZombieHorde.prototype.spawn=function(g){
-    if(g.arcadeMode!=="endless")return baseZombieSpawn.call(this,g);
+    if(g.arcadeMode!=="endless"&&!g.tournament?.active)
+      return baseZombieSpawn.call(this,g);
     const race=g.level.traps.find(t=>t.constructor.name==="CompetitionTraining");
     const positions=[g.player?.x,...(race?.rivals||[]).filter(b=>b.alive).map(b=>b.x)];
     const x=chooseBehindSpawn(positions,g.level.solids,this.spawned);
@@ -775,8 +804,13 @@
   ZombieHorde.prototype.update=function(dt,g){
     for(const zombie of this.zombies)
       if(Number.isFinite(zombie.ttl))zombie.ttl-=dt;
+    const stunned=new Map(this.zombies.filter(z=>z.stunUntil>g.time)
+      .map(z=>[z,z.x]));
     const result=baseZombieUpdate.call(this,dt,g);
     this.zombies=this.zombies.filter(zombie=>!Number.isFinite(zombie.ttl)||zombie.ttl>0);
+    for(const z of this.zombies){
+      if(stunned.has(z)){z.x=stunned.get(z);z.vx=0;}
+    }
     return result;
   };
 
@@ -959,8 +993,9 @@
     }
     addDrop(x,type,options={}){
       if(this.drops.length>=7)return false;
-      const kinds=Game.endlessKind==="peace"?["glue"]:
-        ["pistol","smg","shotgun","laser","burst","glue"];
+      const kinds=Game.endlessKind==="peace"?["glue","ice","shock","burst"]:
+        ["pistol","smg","shotgun","laser","burst","glue","sniper",
+          "flamethrower","shock","ice","railgun"];
       const selected=WEAPONS[type]?type:kinds[this.dropSequence%kinds.length];
       // Use only a nearby generated floor. Never clamp several pending drops
       // onto the final floor of the current procedural chunk.
@@ -970,8 +1005,8 @@
       this.drops.push({...landing,type:selected});return true;
     }
     requestGiftDrop(now,type){
-      if(Game.arcadeMode!=="endless"||!Game.liveWeaponsEnabled||
-         !this.giftGate.allowGiftDrop(now))return false;
+      if((Game.arcadeMode!=="endless"&&!Game.tournament?.active)||
+       !Game.liveWeaponsEnabled||!this.giftGate.allowGiftDrop(now))return false;
       const race=Game.level?.traps.find(t=>t.constructor.name==="CompetitionTraining");
       const lead=Math.max(Game.player?.x||55,...(race?.rivals||[]).map(b=>b.x));
       return this.addDrop(lead+180,type);
@@ -999,7 +1034,7 @@
     }
     nearestZombie(holder,g,automatic=false){
       let best=null,bestDistance=Infinity;
-      const limit=automatic?175:430;
+      const limit=automatic?245:430;
       const shootY=holder.y+14;
       for(const horde of g.level.traps.filter(t=>t instanceof ZombieHorde)){
         for(const zombie of horde.zombies){
@@ -1020,17 +1055,33 @@
       }
       return best;
     }
+    nearestRival(holder,g){
+      const race=g.level?.traps.find(t=>t.constructor?.name==="CompetitionTraining");
+      const opponents=[g.player,...(race?.rivals||[]).filter(b=>b.alive)]
+        .filter(other=>other!==holder&&
+          !(holder.liveTeam&&holder.liveTeam!=="none"&&
+            (other.liveTeam||other.team)===holder.liveTeam));
+      return opponents.filter(other=>Math.abs(other.y-holder.y)<60&&
+        Math.abs(other.x-holder.x)<260)
+        .sort((a,b)=>Math.abs(a.x-holder.x)-Math.abs(b.x-holder.x))[0]||null;
+    }
     fire(holder,g,automatic=false){
       const state=this.stateFor(holder),target=this.nearestZombie(holder,g,automatic);
-      if(!state.type||state.ammo<=0||(!target&&automatic))return false;
-      const direction=target?Math.sign(target.zombie.x-holder.x)||1:(holder.face||1);
+      // In zombie scenarios auto-fire only at mature zombies, not teammates.
+      const hasHorde=g.level.traps.some(t=>t instanceof ZombieHorde);
+      const rival=target||hasHorde?null:this.nearestRival(holder,g);
+      if(!state.type||state.ammo<=0||(!target&&!rival&&automatic))return false;
+      const direction=target?Math.sign(target.zombie.x-holder.x)||1:
+        rival?Math.sign(rival.x-holder.x)||1:(holder.face||1);
       // Bound the global bullet count with 20 participants on mobile.
       if(this.projectiles.length>=140)return false;
       const shots=state.shoot(g.time);
       for(const shot of shots){
         this.projectiles.push({x:holder.x+(direction>0?(holder.w||24):0),
           y:holder.y+14,vx:direction*shot.speed*Math.cos(shot.angle),
-          vy:shot.speed*Math.sin(shot.angle),life:1.15,type:shot.type});
+          vy:shot.speed*Math.sin(shot.angle),life:shot.life,type:shot.type,
+          owner:holder,damage:shot.damage,stun:shot.stun,
+          remainingHits:shot.pierce,hitTargets:new Set()});
       }
       return shots.length>0;
     }
@@ -1045,7 +1096,7 @@
         if(holder===g.player&&wasTemporary&&wasType&&!state.type)
           announceEvent("Arma temporária expirada; disparo interrompido.");
       }
-      if(this.regularEnabled){
+      if(this.regularEnabled&&!g.tournament?.active){
         this.drops=this.drops.filter(drop=>drop.x>=lead-1100);
         while(lead+420>=this.nextDropX){
           this.addDrop(this.nextDropX,undefined,{minSpacing:700});
@@ -1054,34 +1105,53 @@
       }
       for(let i=this.drops.length-1;i>=0;i--){
         const drop=this.drops[i];
-        const holder=holders.find(h=>Math.abs((h.x+(h.w||24)/2)-drop.x)<28&&
-          Math.abs((h.y+(h.h||32)/2)-drop.y)<45);
+        const holder=holders.find(h=>{
+          const radius=g.actorPower?.(h,'magnet')?100:28;
+          return Math.abs((h.x+(h.w||24)/2)-drop.x)<radius&&
+            Math.abs((h.y+(h.h||32)/2)-drop.y)<(radius+18);
+        });
         if(holder){this.stateFor(holder).grantTemporary(drop.type,g.time,15);
           this.drops.splice(i,1);}
       }
       if(fireRequested){this.fire(g.player,g,false);fireRequested=false;}
-      if(g.liveAutoFire&&g.autoFireMain)this.fire(g.player,g,true);
-      if(g.liveAutoFire)for(const bot of holders.slice(1))this.fire(bot,g,true);
+      // Auto-fire is intrinsic to an equipped weapon, never a separate mode.
+      // The main character may ALSO fire manually; only a valid target is auto-fired.
+      if(holders.length)this.fire(g.player,g,true);
+      for(const bot of holders.slice(1))this.fire(bot,g,true);
       for(let i=this.projectiles.length-1;i>=0;i--){
         const bullet=this.projectiles[i];bullet.x+=bullet.vx*dt;bullet.y+=bullet.vy*dt;bullet.life-=dt;
         let hit=false;
-        if(bullet.type==="glue"&&race){
-          const bot=race.rivals.find(r=>r.alive&&
-            aabb(R(bullet.x-4,bullet.y-3,9,6),R(r.x,r.y,24,32)));
-          if(bot){bot.slowedUntil=Math.max(bot.slowedUntil||0,race.clock+2);hit=true;}
+        const body=R(bullet.x-4,bullet.y-3,9,6);
+        // With or without zombies, weapons NEVER kill fellow competitors.
+        // Hits cause only temporary delay/freeze/knockback.
+        const contenders=[g.player,...(race?.rivals||[]).filter(b=>b.alive)];
+        for(const other of contenders){
+          if(other===bullet.owner||bullet.hitTargets.has(other))continue;
+          const ownTeam=bullet.owner.liveTeam||bullet.owner.team;
+          if(ownTeam&&ownTeam!=="none"&&ownTeam===(other.liveTeam||other.team))continue;
+          if(!aabb(body,R(other.x,other.y,other.w||26,other.h||32)))continue;
+          other.slowedUntil=Math.max(other.slowedUntil||0,(race?.clock||g.time)+
+            (bullet.stun||1.3));
+          if(bullet.type==="shock"||bullet.type==="railgun")
+            other.vx+=Math.sign(bullet.vx)*Math.min(70,Math.abs(other.vx)*.3);
+          bullet.hitTargets.add(other);hit=true;
+          bullet.remainingHits--;break;
         }
-        for(const horde of hit?[]:g.level.traps.filter(t=>t instanceof ZombieHorde)){
-          const index=horde.zombies.findIndex(z=>aabb(R(bullet.x-3,bullet.y-2,7,4),R(z.x,z.y,22,32)));
-          if(index>=0){
-            const zombie=horde.zombies[index];zombie.life=(zombie.life||1)-1;
-            if(zombie.life<=0){
-              horde.dead.push({x:zombie.x,y:zombie.y,t:0,fall:"shot"});
-              horde.zombies.splice(index,1);
-            }
-            hit=true;break;
+        if(!hit)for(const horde of g.level.traps.filter(t=>t instanceof ZombieHorde)){
+          const index=horde.zombies.findIndex(z=>!bullet.hitTargets.has(z)&&
+            aabb(body,R(z.x,z.y,22,32)));
+          if(index<0)continue;
+          const zombie=horde.zombies[index];
+          zombie.life=(zombie.life||1)-Math.max(0,bullet.damage||0);
+          if(bullet.stun)zombie.stunUntil=Math.max(zombie.stunUntil||0,g.time+bullet.stun);
+          if(bullet.type==="railgun")zombie.x+=Math.sign(bullet.vx)*12;
+          if(zombie.life<=0){
+            horde.dead.push({x:zombie.x,y:zombie.y,t:0,fall:"shot"});
+            horde.zombies.splice(index,1);
           }
+          bullet.hitTargets.add(zombie);hit=true;bullet.remainingHits--;break;
         }
-        if(hit||bullet.life<=0)this.projectiles.splice(i,1);
+        if((hit&&bullet.remainingHits<=0)||bullet.life<=0)this.projectiles.splice(i,1);
       }
       this.updateHud();
     }
@@ -1099,15 +1169,21 @@
     draw(){
       ctx.save();
       const colors={pistol:"#b9e8ff",smg:"#ffd478",shotgun:"#efa78f",
-        laser:"#ff8fda",burst:"#d5b2ff",glue:"#83e2d1"};
+        laser:"#ff8fda",burst:"#d5b2ff",glue:"#83e2d1",
+        sniper:"#a9daff",flamethrower:"#ff9c45",shock:"#c5b6ff",
+        ice:"#8dfaff",railgun:"#fa75bb"};
       for(const drop of this.drops){
         ctx.fillStyle=colors[drop.type];ctx.fillRect(drop.x-11,drop.y-7,22,7);
         ctx.fillRect(drop.x+2,drop.y,5,8);
         ctx.fillStyle=theme.ink;ctx.font="bold 9px "+FONT;ctx.textAlign="center";
         ctx.fillText(drop.type.toUpperCase(),drop.x,drop.y-12);
       }
-      ctx.fillStyle="#fff3ad";
-      for(const bullet of this.projectiles)ctx.fillRect(bullet.x-3,bullet.y-2,7,4);
+      for(const bullet of this.projectiles){
+        ctx.fillStyle=colors[bullet.type]||"#fff3ad";
+        const thick=bullet.type==="flamethrower"?6:bullet.type==="railgun"?3:4;
+        const length=bullet.type==="railgun"?24:bullet.type==="sniper"?12:7;
+        ctx.fillRect(bullet.x-length/2,bullet.y-thick/2,length,thick);
+      }
       const race=Game.level?.traps.find(t=>t.constructor.name==="CompetitionTraining");
       const holders=[Game.player,...(race?.rivals||[]).filter(b=>b.alive)];
       for(const holder of holders){
@@ -1122,6 +1198,7 @@
     }
   }
 
+  Game.LiveWeaponRuntime=LiveWeaponRuntime;
   class LivePowerRuntime{
     constructor(){this.expiresAt=-Infinity;this.duration=0;this.lastHud="";}
     grant(now,duration=5){
@@ -1132,14 +1209,29 @@
     remaining(now){return Math.min(15,Math.max(0,this.expiresAt-now));}
     update(_dt,g){
       const hud=byId("live-power-hud");if(!hud)return;
-      const remaining=this.remaining(g.time),active=remaining>0;
-      hud.classList.toggle("hidden",!active);
-      const text=active?"LENTIDÃO · "+Math.ceil(remaining)+" s":"LENTIDÃO";
+      const activePowers=g.actorPowers?.(g.player)||[];
+      const remaining=this.remaining(g.time),active=remaining>0||activePowers.length>0;
+      hud.classList.toggle('hidden',!active);
+      const text=activePowers.length?activePowers.map(p=>p.label+' '+Math.ceil(p.remaining)+' s').join(' · '):
+        active?'PODER '+Math.ceil(remaining)+' s':'PODER';
       if(text!==this.lastHud){hud.textContent=text;this.lastHud=text;}
+      // The freezing aura is team-safe, scoped to its holder and short-lived.
+      const race=g.level?.traps.find(t=>t.constructor?.name==='CompetitionTraining');
+      const actors=[g.player,...(race?.rivals||[]).filter(b=>b.alive)];
+      for(const actor of actors){
+        if(!g.actorPower?.(actor,'freeze'))continue;
+        for(const other of actors){
+          if(other===actor||Math.abs(other.x-actor.x)>160)continue;
+          const team=actor.liveTeam||actor.team;
+          if(team&&team!=='none'&&(other.liveTeam||other.team)===team)continue;
+          other.slowedUntilGame=Math.max(other.slowedUntilGame||0,g.time+.24);
+        }
+      }
     }
     solids(){return []}kills(){return []}draw(){}
   }
 
+  Game.LivePowerRuntime=LivePowerRuntime;
   function announceEvent(message){
     feedback(message);
     const toast=byId("live-event-toast");
@@ -1167,10 +1259,10 @@
       horde=new ZombieHorde({speed:168,spawnEvery:99,maxZombies:28,initialDelay:99});
       Game.level.traps.push(horde);
     }
-    horde.maxZombies=28;
+    horde.maxZombies=Math.min(110,Math.max(28,horde.maxZombies));
     const race=liveRace();
     const positions=[Game.player?.x,...(race?.rivals||[]).filter(b=>b.alive).map(b=>b.x)];
-    const count=Math.min(14,28-horde.zombies.length);
+    const count=Math.min(14,horde.maxZombies-horde.zombies.length);
     let added=0;
     for(let index=0;index<count;index++){
       const base=chooseBehindSpawn(positions,Game.level.solids,horde.spawned+index);
@@ -1188,7 +1280,8 @@
     return added;
   }
   function applyLiveEffect(effect,event={}){
-    if(Game.arcadeMode!=="endless"||Game.state!=="play")return false;
+    if((Game.arcadeMode!=="endless"&&!Game.tournament?.active)||
+       Game.state!=="play")return false;
     const objects=Game.level.traps.filter(t=>t.isLiveObject&&t.ttl>0);
     if(["portal","obstacle"].includes(effect)&&
        objects.length>=LIVE_LIMITS.maxRuntimeObjects)return false;
@@ -1228,8 +1321,11 @@
       announceEvent("Horda gigante temporária: "+added+" zumbis atrás.");return true;
     }
     if(effect==="weapon"){
-      const type=Game.endlessKind==="peace"?"glue":
-        (effectSequence++%2?"burst":"laser");
+      const types=Game.endlessKind==="peace"?["glue","ice","shock"]:
+        ["pistol","smg","shotgun","laser","burst","sniper",
+          "flamethrower","shock","ice","railgun"];
+      const type=WEAPONS[event?.weaponType]?event.weaponType:
+        types[effectSequence++%types.length];
       const added=Game.liveWeaponsEnabled
         ?Game.liveWeapons?.requestGiftDrop(Game.time,type)
         :Game.liveWeapons?.grantTemporaryForEvent(event,type,Game.time)||false;
@@ -1239,12 +1335,21 @@
       return added;
     }
     if(effect==="power"){
-      const race=liveRace();if(!race?.rivals.length)return false;
-      const duration=5;
-      for(const bot of race.rivals)
-        bot.slowedUntil=race.clock+duration;
+      if(!Game.grantActorPower)return false;
+      const types=globalThis.FablePowers?.keys||[];
+      if(!types.length)return false;
+      const type=types.includes(event.powerType)?event.powerType:
+        types[effectSequence++%types.length];
+      const race=liveRace(),username=sanitizeName(event.user).toLowerCase();
+      const chosen=(race?.rivals||[]).find(b=>b.name.toLowerCase()===username||
+        b.viewer?.toLowerCase()===username);
+      const holder=chosen||Game.player;
+      const duration=globalThis.FablePowers.TYPES[type].duration;
+      if(!Game.grantActorPower(holder,type,duration))return false;
       Game.livePower?.grant(Game.time,duration);
-      announceEvent("Poder de lentidão: rivais atrasados por 5 s, sem dano.");return true;
+      announceEvent('Poder '+globalThis.FablePowers.TYPES[type].label+
+        ' por '+duration+' s para '+(holder===Game.player?'protagonista':holder.name)+'.');
+      return true;
     }
     return false;
   }
@@ -1253,13 +1358,14 @@
     if(!eventGate.allow(effect,now)){
       announceEvent("Evento "+effect+" bloqueado por cooldown.");return false;
     }
-    if(Game.arcadeMode!=="endless"||Game.state!=="play"){
+    if((Game.arcadeMode!=="endless"&&!Game.tournament?.active)||
+       Game.state!=="play"){
       if(pendingEffects.length>=8){
         announceEvent("Fila de eventos cheia; aguarde a próxima partida.");return false;
       }
       pendingEffects.push({effect,event});
       announceEvent((source==="simulation"?"Evento simulado":"Evento da LIVE")+
-        " agendado para a próxima partida infinita.");return true;
+        " agendado para a próxima partida.");return true;
     }
     const applied=applyLiveEffect(effect,event);
     if(!applied&&effect!=="life")
@@ -1272,7 +1378,7 @@
     // timer remains only as a legacy lobby fallback before a run starts.
     lobby.ensureSystemBots(clockMs());
     this.liveWeaponsEnabled=!!this.liveWeaponsEnabled;
-    this.liveAutoFire=!!this.liveAutoFire;
+    this.liveAutoFire=true;
     const result=baseStartEndless.call(this);
     const race=syncLiveBots();
     const weaponHud=byId("live-weapon-hud"),fireButton=byId("tc-fire");

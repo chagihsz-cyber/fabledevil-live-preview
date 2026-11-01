@@ -156,7 +156,7 @@
     }
     if(button){button.textContent=enabled?"🤖 BOT: LIGADO":"🎮 JOGAR MANUAL";
       button.setAttribute("aria-pressed",String(enabled));}
-    const isEndless=Game.arcadeMode==="endless";
+    const isEndless=Game.arcadeMode==="endless"||Game.tournament?.active;
     if(panel)panel.classList.toggle("hidden",!isEndless||!
       ["play","respawnDelay"].includes(Game.state));
     if(isEndless&&Game.state==="play")setTouchControlsVisible(!enabled);
@@ -181,12 +181,14 @@
   const oldRevive=Game.reviveInSurvival;
   if(typeof oldRevive==="function")Game.reviveInSurvival=function(...args){
     const result=oldRevive.apply(this,args);
-    if(enabled&&this.arcadeMode==="endless")setTouchControlsVisible(false);
+    if(enabled&&(this.arcadeMode==="endless"||this.tournament?.active))
+      setTouchControlsVisible(false);
     return result;
   };
   const oldPlay=Game.updatePlay;
   Game.updatePlay=function(dt){
-    const active=enabled&&this.arcadeMode==="endless"&&this.state==="play";
+    const active=enabled&&(this.arcadeMode==="endless"||this.tournament?.active)&&
+      this.state==="play";
     if(active&&this.player){
       const d=brain.next(dt,this);
       const inputDirection=d.reverseControls?-d.direction:d.direction;
@@ -205,7 +207,7 @@
   let oldVisible=null;
   Game.update=function(dt){
     const result=oldUpdate.call(this,dt);
-    const visible=this.arcadeMode==="endless"&&
+    const visible=(this.arcadeMode==="endless"||this.tournament?.active)&&
       ["play","respawnDelay"].includes(this.state);
     if(visible!==oldVisible){refreshUI();oldVisible=visible;}
     return result;

@@ -1760,7 +1760,8 @@ const Game = {
   },
 
   die(x, y) {
-    if (this.state !== "play") return;
+    if (this.state !== "play" ||
+      (this.actorPower?.(this.player,'shield')===true)) return;
     this.deaths++;
     saveProgress();
     updateDeathHud();
@@ -1831,7 +1832,8 @@ const Game = {
 
   liveActors() {
     const actors = this.player ? [this.player] : [];
-    if (this.arcadeMode !== "endless" || !this.level) return actors;
+    if ((this.arcadeMode !== "endless"&&!this.tournament?.active)||!this.level)
+      return actors;
     const race = this.level.traps.find((trap) =>
       trap.constructor?.name === "CompetitionTraining");
     for (const bot of race?.rivals || []) {
@@ -1862,16 +1864,18 @@ const Game = {
     if (this.remoteLock) dir = 0;
     if (dir !== 0) p.face = dir;
 
-    const SPEED = 265;
+    const mods=this.actorPowerMods?.(p)||{speed:1,gravity:1,jump:1};
+    const SPEED = 265*(mods.speed||1);
     const accel = p.grounded ? 2600 : 1800;
-    const target = dir * SPEED;
+    const statusSlow=(p.slowedUntil||0)>this.time?.52:1;
+    const target = dir * SPEED*statusSlow;
     if (target > p.vx) p.vx = Math.min(target, p.vx + accel * dt);
     else if (target < p.vx) p.vx = Math.max(target, p.vx - accel * dt);
 
     jumpBuffered = Math.max(0, jumpBuffered - dt);
     p.coyote = p.grounded ? 0.1 : Math.max(0, p.coyote - dt);
     if (jumpBuffered > 0 && p.coyote > 0) {
-      p.vy = -645 * this.gravityDir;
+      p.vy = -645 * (mods.jump||1) * this.gravityDir;
       p.grounded = false;
       p.coyote = 0;
       p.jumping = true;
@@ -1885,15 +1889,19 @@ const Game = {
       p.jumping = false;
     }
 
+    const poweredGravity=2150*(mods.gravity||1);
     p.vy = this.gravityDir > 0
-      ? Math.min(p.vy + 2150 * dt, 980)
-      : Math.max(p.vy - 2150 * dt, -980);
+      ? Math.min(p.vy + poweredGravity * dt, 980)
+      : Math.max(p.vy - poweredGravity * dt, -980);
+    if(mods.float&&heldJump()&&!p.grounded)
+      p.vy=Math.min(p.vy,-125*this.gravityDir);
 
     const solids = this.collectSolids();
     const wasGrounded = p.grounded;
 
     p.x += p.vx * dt;
     for (const s of solids) {
+      if(this.actorCanPhase?.(p,s))continue;
       if (aabb(p, s)) {
         // Caixas podem ser empurradas no próprio motor de colisão.
         if (s.pushable && typeof s.tryPush === "function" &&
@@ -1911,6 +1919,7 @@ const Game = {
     p.y += p.vy * dt;
     p.grounded = false;
     for (const s of solids) {
+      if(this.actorCanPhase?.(p,s))continue;
       if (aabb(p, s)) {
         if (p.vy * this.gravityDir > 0) {
           p.y = this.gravityDir > 0 ? s.y - p.h : s.y + s.h;
@@ -1929,6 +1938,7 @@ const Game = {
     p.squash = Math.max(0, p.squash - dt);
 
     for (const s of solids) {
+      if(this.actorCanPhase?.(p,s))continue;
       if (aabb(R(p.x + 4, p.y + 4, p.w - 8, p.h - 8), s)) {
         this.die(p.x + p.w / 2, p.y + p.h / 2);
         return;

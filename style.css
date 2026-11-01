@@ -704,3 +704,27 @@ button#challenge-btn:hover {filter:brightness(1.14)}
  .live-bot-setup{grid-template-columns:1fr 76px}
  .live-appearance-row{grid-template-columns:minmax(80px,1fr) 40px minmax(88px,1fr)}
 }
+
+/* Stage-based elimination and loot editor: small-screen safe and scrollable. */
+#campaign-settings{text-align:left;max-width:min(620px,96vw);overflow-y:auto}
+#campaign-settings label{display:block;color:#e5efdf;font:700 12px/1.4 system-ui;margin:10px 0 4px}
+#campaign-settings label:has(input[type="checkbox"]){display:flex;align-items:center;gap:8px;margin:8px 0}
+#campaign-settings input:not([type="checkbox"]),#campaign-settings select{
+  box-sizing:border-box;width:100%;max-width:100%;padding:9px 10px;
+  background:#203a2e;color:#f2f8eb;border:1px solid #739e80;
+  border-radius:8px;font:600 13px system-ui}
+#campaign-settings input[type="number"]{max-width:130px}
+#campaign-settings .dialog-actions{position:sticky;bottom:-24px;
+  background:#182f26;padding:8px 0 0;margin-top:8px;z-index:2}
+#tournament-counter{position:absolute;z-index:27;top:52px;left:50%;
+  transform:translateX(-50%);max-width:55%;box-sizing:border-box;
+  background:#1a332ce8;color:#f9e4a5;border:1px solid #9ebd8e;
+  border-radius:8px;padding:5px 9px;text-align:center;
+  font:800 11px/1.25 system-ui;pointer-events:none}
+@media(max-width:650px){
+  #campaign-settings{max-height:86%;padding:14px;width:min(550px,97vw)}
+  #campaign-settings input:not([type="checkbox"]){font-size:12px}
+  #campaign-settings .dialog-actions{bottom:-14px}
+  #tournament-counter{left:4px;top:64px;max-width:42%;transform:none;
+    font-size:9px;padding:4px 6px}
+}

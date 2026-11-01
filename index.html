@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=live-v6" />
+<link rel="stylesheet" href="style.css?v=live-v7" />
 </head>
 <body>
 <!-- TOP CONTROL BAR (always visible) -->
@@ -167,13 +167,43 @@
 
   <div id="race-standings" class="hidden" aria-label="Placar do modo Infinito"></div>
   <!-- Economy and competition are prototypes local to the browser. -->
+  <div id="campaign-settings" class="arcade-dialog hidden" role="dialog" aria-modal="true"
+    aria-labelledby="campaign-settings-title">
+    <h2 id="campaign-settings-title">🏆 CONFIGURAR FASES</h2>
+    <p>Eliminatória: quem morrer sai do torneio. Os sobreviventes seguem até restar um.
+    A campanha clássica permanece disponível separadamente.</p>
+    <label for="phase-initial-bots">Bots na primeira fase (0–20)</label>
+    <input id="phase-initial-bots" type="number" min="0" max="20" value="20">
+    <label for="phase-bot-caps">Limite de bots por fase (separe por vírgulas)</label>
+    <input id="phase-bot-caps" value="20,16,13,10,8,6,5,4,3,2,1" autocomplete="off">
+    <label for="phase-loot-caps">Quantidade de loot por fase</label>
+    <input id="phase-loot-caps" value="20,16,13,10,8,6,5,4,3,2,1" autocomplete="off">
+    <label for="phase-zombies">Zumbis nas fases (desligados por padrão)</label>
+    <select id="phase-zombies"><option value="off">Sem zumbis</option>
+      <option value="normal">Normal</option><option value="hard">Difícil</option></select>
+    <label><input id="phase-weapons" type="checkbox"> Armas e loot de armas nas fases</label>
+    <label><input id="phase-powers" type="checkbox"> Poderes e loot de poderes nas fases</label>
+    <label><input id="phase-main-bot" type="checkbox"> Protagonista controlado por bot</label>
+    <div class="dialog-actions">
+      <button id="phase-start" type="button">COMEÇAR TORNEIO</button>
+      <button id="phase-classic" type="button">CAMPANHA CLÁSSICA</button>
+      <button id="phase-back" type="button">VOLTAR</button>
+    </div>
+  </div>
+  <div id="tournament-counter" class="tournament-counter hidden" aria-live="polite"></div>
+  <div id="tournament-results" class="arcade-dialog hidden" role="dialog" aria-label="Final do torneio">
+    <h2>🏆 TORNEIO ENCERRADO</h2>
+    <p id="tournament-winner">Vencedor definido pela última fase.</p>
+    <button id="phase-result-restart" type="button">NOVO TORNEIO</button>
+    <button id="phase-result-menu" type="button">VOLTAR AO MENU</button>
+  </div>
   <div id="endless-settings" class="arcade-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="endless-settings-title">
     <h2 id="endless-settings-title">CONFIGURAR INFINITO</h2>
     <fieldset>
       <legend>Zumbis</legend>
       <label><input id="endless-zombies-off" type="radio" name="endless-zombies" value="off" checked> Desligados</label>
       <label><input id="endless-zombies-easy" type="radio" name="endless-zombies" value="normal"> Normal · até 16 zumbis</label>
-      <label><input id="endless-zombies-hard" type="radio" name="endless-zombies" value="hard"> Difícil · Horda gigante (até 42)</label>
+      <label><input id="endless-zombies-hard" type="radio" name="endless-zombies" value="hard"> Difícil · Horda gigante (80 a 96 zumbis)</label>
     </fieldset>
     <label for="endless-variant">Formato</label>
     <select id="endless-variant">
@@ -185,7 +215,9 @@
     <label for="endless-system-bots">Bots do sistema na largada (0–20)</label>
     <input id="endless-system-bots" type="number" min="0" max="20" step="1" value="5" inputmode="numeric">
     <label><input id="endless-weapons" type="checkbox"> Ativar armas e drops nesta partida</label>
-    <label><input id="endless-autofire" type="checkbox"> Permitir autoatirar quando houver arma</label>
+    <p>🔫 Com arma equipada, o personagem atira automaticamente em alvos próximos.
+    Sem arma, não atira. Armas e poderes temporários duram até 15 segundos.</p>
+    <input id="endless-autofire" type="hidden" value="automatic">
     <label><input id="endless-main-bot" type="checkbox"> Personagem principal controlado por bot</label>
     <p>Armas ficam desligadas por padrão. Uma regra da LIVE ainda pode conceder arma temporária por até 15 s.</p>
     <div class="dialog-actions">
@@ -198,9 +230,9 @@
   <button id="competition-btn" class="hidden" type="button" aria-hidden="true" tabindex="-1">COMPETIÇÃO</button>
   <div id="zombie-settings" class="arcade-dialog hidden" role="dialog" aria-label="Escolher dificuldade dos zumbis">
     <h2>🧟 SOBREVIVÊNCIA ZUMBI</h2>
-    <p>Normal: perseguição forte (até 16). Difícil: horda gigante (até 42).</p>
+    <p>Normal: perseguição forte (até 16). Difícil: até 80, ou 96 com armas.</p>
     <label><input type="radio" name="zombie-difficulty" value="normal" checked> Normal — até 16 zumbis (224)</label>
-    <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — horda gigante de até 42 zumbis</label>
+    <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — horda de até 80/96 zumbis</label>
     <label><input id="zombie-main-bot" type="checkbox"> 🤖 Personagem principal controlado por bot</label>
     <p>🔫 Armas disponíveis automaticamente para todos, com munição limitada e drops durante a partida.</p>
     <input id="zombie-weapons" type="hidden" value="always-on">
@@ -309,15 +341,17 @@
 
 
 
-<script src="game.js?v=live-v6"></script>
+<script src="game.js?v=live-v7"></script>
 <script src="dynamic_traps.js?v=live-v6"></script>
-<script src="stage_mechanics.js?v=live-v6"></script>
+<script src="stage_mechanics.js?v=live-v7"></script>
 <script src="campaign_chapter2.js?v=arcade9"></script>
-<script src="arcade_modes.js?v=arcade9"></script>
+<script src="arcade_modes.js?v=live-v7"></script>
 <script src="lab_chambers.js?v=arcade9"></script>
-<script src="adventure_modes.js?v=live-v6"></script>
-<script src="live_rules.js?v=live-v5"></script>
-<script src="live_modes.js?v=live-v6"></script>
-<script src="player_autopilot.js?v=live-v5"></script>
+<script src="adventure_modes.js?v=live-v7"></script>
+<script src="live_powers.js?v=live-v7"></script>
+<script src="live_rules.js?v=live-v7"></script>
+<script src="live_modes.js?v=live-v7"></script>
+<script src="player_autopilot.js?v=live-v7"></script>
+<script src="campaign_tournament.js?v=live-v7"></script>
 </body>
 </html>

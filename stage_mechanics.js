@@ -262,14 +262,17 @@ class ZombieHorde {
       this.elapsed=0;
       this.spawn(g);
     }
-    const p=g.player;
+    const actors=typeof g.liveActors==="function"?g.liveActors():[g.player];
     for(let i=this.zombies.length-1;i>=0;i--){
       const z=this.zombies[i];
+      const p=actors.reduce((best,actor)=>
+        Math.abs(actor.x-z.x)<Math.abs(best.x-z.x)?actor:best,g.player);
       z.spawnT=Math.max(0,(z.spawnT||0)-dt);
       const dir=Math.sign((p.x+p.w/2)-(z.x+11))||z.face;
       z.face=dir;
       const oldY=z.y,oldX=z.x;
-      const speed=this.speed+Math.min(55,(g.endlessScore||0)*.0075);
+      // Zombies never outrun a normal 265 px/s racer, including long runs.
+      const speed=Math.min(260,this.speed+Math.min(40,(g.endlessScore||0)*.0075));
       const solids=[...g.level.solids];
       for(const t of g.level.traps)
         if(t!==this&&typeof t.solids==="function")
@@ -316,7 +319,7 @@ class ZombieHorde {
         this.dead.push({x:z.x,y:Math.min(z.y,480),t:0,fall:hazard?"trap":"pit"});
         this.zombies.splice(i,1);continue;
       }
-      if(z.spawnT===0&&aabb(hit,R(p.x+3,p.y+3,p.w-6,p.h-6))){
+      if(p===g.player&&z.spawnT===0&&aabb(hit,R(p.x+3,p.y+3,p.w-6,p.h-6))){
         if(typeof g.die==="function")g.die(p.x+p.w/2,p.y+p.h/2);
         return;
       }

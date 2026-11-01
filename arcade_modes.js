@@ -439,7 +439,8 @@
   // Capture phase runs before the old "always start at level 1" callback.
   document.getElementById("play-btn").addEventListener("click",e=>{
     e.stopImmediatePropagation();
-    startGame(highestUnlocked());
+    if(typeof Game.openPhaseTourneyMenu==='function')Game.openPhaseTourneyMenu();
+    else startGame(highestUnlocked());
   },true);
   buildLevelGrid();
   window.MotocaArcade={campaign:{original:ORIGINAL_LEVELS,procedural:true,
