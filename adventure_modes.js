@@ -228,6 +228,25 @@
    return result;
  };
 
+ function fallbackRivalIdentity(id,name) {
+   if(globalThis.MotocaLiveCore?.createBotIdentity)
+     return globalThis.MotocaLiveCore.createBotIdentity(id,name);
+   let seed=2166136261;
+   for(const char of String(id)+"|"+String(name)){
+     seed^=char.codePointAt(0);seed=Math.imul(seed,16777619);
+   }
+   seed>>>=0;
+   const traits=["prudente","veloz","ousado","equilibrado","oportunista"];
+   return {seed,trait:traits[seed%traits.length],reactionMs:75+(seed%151),
+     inversionMs:300+((seed>>>8)%351),anticipation:[126,94,72,108,84][seed%5],
+     hesitationEveryMs:4800+((seed>>>5)%4200),hesitationMs:55+((seed>>>13)%91),
+     jumpHoldMs:185+((seed>>>19)%56),portalBias:[28,48,66,44,58][seed%5],
+     physics:{width:26,height:32,maxSpeed:265,gravity:2150,jumpVelocity:-645,
+       groundAcceleration:2600,airAcceleration:1800,fallCap:980}};
+ }
+ function racerLabel(racer){
+   return racer.team&&racer.team!=="none"?racer.name+" ["+racer.teamLabel+"]":racer.name;
+ }
  class CompetitionTraining {
    // One shared map and hazard set for the human and all simulated rivals.
    constructor(type) {
@@ -236,10 +255,11 @@
        {name:"Motoca Azul",color:"#79c6ed",speed:265},
        {name:"Motoca Roxo",color:"#d4a3e8",speed:265},
        {name:"Motoca Amarelo",color:"#e6d178",speed:265},
-     ].map((b,i)=>({...b,x:55,y:448,w:26,h:32,vy:0,vx:0,
+     ].map((b,i)=>{const ai=fallbackRivalIdentity("offline-"+i,b.name);return {...b,ai,
+       trait:ai.trait,x:55-i*.75,y:448,w:26,h:32,vy:0,vx:0,
        grounded:true,face:1,squash:0,jumping:false,coyote:0,jumpHold:0,
        lives:MAX_LIVES,alive:true,respawnTimer:0,protectedUntil:0,jumps:0,deadCount:0,
-       safeX:55,lastY:448,phase:i*1.31}));
+       safeX:55,lastY:448,phase:i*1.31}});
    }
    reset(){}
    botHit(bot,g) {
@@ -266,6 +286,8 @@
      this.clock+=dt;
      for(const bot of this.rivals) {
        if(!bot.alive)continue;
+       const ai=bot.ai||fallbackRivalIdentity(bot.participantId||bot.name,bot.name);
+       bot.ai=ai;bot.trait=ai.trait;
        if(bot.respawnTimer>0) {
          bot.respawnTimer=Math.max(0,bot.respawnTimer-dt);
          if(bot.respawnTimer===0) {
@@ -295,29 +317,36 @@
        const gap=upcoming?upcoming.x-edge:Infinity;
        const danger=g.level.traps.some(t=>t!==this&&
          typeof t.kills==="function"&&t.kills().some(h=>
-           h.x>bot.x+22&&h.x<bot.x+123&&
+           h.x>bot.x+22&&h.x<bot.x+ai.anticipation&&
            h.y<bot.y+43&&h.y+h.h>bot.y-17));
        const wallAhead=solids.some(s=>!s.pushable&&s.y+s.h>bot.y+17&&s.y<bot.y+32&&
-         s.x>bot.x+bot.w-5&&s.x<bot.x+87);
+         s.x>bot.x+bot.w-5&&s.x<bot.x+Math.max(70,ai.anticipation));
        const riskPortal=g.level.traps.find(t=>t.isRiskPortal&&
          t.x>bot.x-8&&t.x<bot.x+105);
        let takesPortal=false;
        if(riskPortal){
          const chance=(Math.sin(riskPortal.x*.071+bot.phase*3.1)+1)/2;
-         takesPortal=chance<.46&&bot.lives>1;
+         takesPortal=chance*100<ai.portalBias&&bot.lives>1;
          bot.portalChoice=takesPortal?"risk":"avoid";
        }
-       const needsGapJump=playerFloor&&edgeDistance<78&&
+       const needsGapJump=playerFloor&&edgeDistance<Math.max(62,ai.anticipation*.72)&&
          edgeDistance>-18&&gap>15;
-       const shouldJump=bot.grounded&&(needsGapJump||wallAhead||danger||
-         (riskPortal&&!takesPortal));
+       const decisionKey=(needsGapJump?"gap":"")+(wallAhead?"wall":"")+
+         (danger?"danger":"")+(riskPortal&&!takesPortal?"portal":"");
+       if(decisionKey&&bot.decisionKey!==decisionKey){
+         bot.decisionKey=decisionKey;bot.decisionReadyAt=this.clock+ai.reactionMs/1000;
+       }else if(!decisionKey){bot.decisionKey="";bot.decisionReadyAt=this.clock;}
+       const wallUrgent=wallAhead&&solids.some(s=>!s.pushable&&
+         s.x-(bot.x+bot.w)<28&&s.x>=bot.x+bot.w-5);
+       const shouldJump=bot.grounded&&!!decisionKey&&
+         (wallUrgent||this.clock>=(bot.decisionReadyAt||0));
        const inversionRoom=g.level.traps.find(t=>t.constructor?.name==="ChaosRoom"&&
          (t.type==="mirror"||t.type==="chaos")&&
          bot.x+bot.w/2>t.x&&bot.x+bot.w/2<t.x+t.width&&
          bot.y+bot.h>t.y&&bot.y<t.y+t.h);
        if(inversionRoom&&bot.inversionRoom!==inversionRoom){
          bot.inversionRoom=inversionRoom;
-         const reaction=.3+Math.abs(Math.sin(bot.phase+inversionRoom.x*.01))*.35;
+         const reaction=ai.inversionMs/1000;
          bot.inversionDelayUntil=this.clock+reaction;
          bot.inversionWrongWay=false;
        }else if(!inversionRoom)bot.inversionRoom=null;
@@ -328,22 +357,26 @@
        // The AI decides WHEN to jump, never receives extra movement power.
        const oldX=bot.x,oldY=bot.y;
        const slowFactor=this.clock<(bot.slowedUntil||0)?.46:1;
-       const target=(inversionReacting?-70:265)*slowFactor;
-       const acceleration=bot.grounded?2600:1800;
+       const hesitationPhase=(this.clock*1000+(ai.seed%ai.hesitationEveryMs))%
+         ai.hesitationEveryMs;
+       const hesitating=!decisionKey&&bot.grounded&&hesitationPhase<ai.hesitationMs;
+       bot.hesitating=hesitating;
+       const target=(inversionReacting?-70:(hesitating?0:ai.physics.maxSpeed))*slowFactor;
+       const acceleration=bot.grounded?ai.physics.groundAcceleration:ai.physics.airAcceleration;
        if(target>bot.vx)bot.vx=Math.min(target,bot.vx+acceleration*dt);
        else if(target<bot.vx)bot.vx=Math.max(target,bot.vx-acceleration*dt);
-       bot.speed=265;
+       bot.speed=ai.physics.maxSpeed;
        bot.face=bot.vx<0?-1:1;
        if(shouldJump&&bot.grounded){
-         bot.vy=-645;bot.grounded=false;bot.jumping=true;
-         bot.jumpHold=.24;bot.jumps++;
+         bot.vy=ai.physics.jumpVelocity;bot.grounded=false;bot.jumping=true;
+         bot.jumpHold=ai.jumpHoldMs/1000;bot.jumps++;
        }
        bot.jumpHold=Math.max(0,(bot.jumpHold||0)-dt);
        if(bot.vy>=0)bot.jumping=false;
        if(bot.jumpHold<=0&&bot.jumping&&bot.vy<-220){
          bot.vy=-220;bot.jumping=false;
        }
-       bot.vy=Math.min(bot.vy+2150*dt,980);
+       bot.vy=Math.min(bot.vy+ai.physics.gravity*dt,ai.physics.fallCap);
        bot.x+=bot.vx*dt;
        for(const solid of solids){
          if(!aabb(bot,solid))continue;
@@ -373,9 +406,9 @@
        bot.squash=Math.max(0,(bot.squash||0)-dt);
        if(bot.grounded)bot.safeX=bot.x;
        bot.stuckFor=bot.x<=oldX+.2?(bot.stuckFor||0)+dt:0;
-       if(bot.stuckFor>1.1&&bot.grounded){
-         bot.vy=-645;bot.grounded=false;bot.jumping=true;
-         bot.jumpHold=.24;bot.stuckFor=0;bot.jumps++;
+       if(bot.stuckFor>.85+(ai.seed%500)/1000&&bot.grounded){
+         bot.vy=ai.physics.jumpVelocity;bot.grounded=false;bot.jumping=true;
+         bot.jumpHold=ai.jumpHoldMs/1000;bot.stuckFor=0;bot.jumps++;
        }
        if(riskPortal&&takesPortal&&typeof riskPortal.transport==="function")
          riskPortal.transport(bot,g);
@@ -387,8 +420,10 @@
        this.lastHudUpdate=this.clock;
        stand.classList.remove("hidden");
        const positions=[
-         {name:"Você",x:g.player.x,live:g.hearts,alive:g.hearts>0},
-         ...this.rivals.map(b=>({name:b.name,x:b.x,live:b.lives,alive:b.alive}))
+         {name:g.player.liveTeam&&g.player.liveTeam!=="none"
+           ?"Você ["+g.player.liveTeamLabel+"]":"Você",
+          isPlayer:true,x:g.player.x,live:g.hearts,alive:g.hearts>0},
+         ...this.rivals.map(b=>({name:racerLabel(b),x:b.x,live:b.lives,alive:b.alive}))
        ].sort((a,b)=>b.x-a.x);
        stand.replaceChildren();
        for(let i=0;i<positions.length;i++){
@@ -396,14 +431,14 @@
          const b=positions[i];
          line.textContent=(i+1)+"º "+b.name+" · "+Math.max(0,Math.floor((b.x-55)/10))+
            " m · ♥"+b.live+(b.alive?"":" ☠");
-         if(b.name==="Você")line.classList.add("racer-you");
+         if(b.isPlayer)line.classList.add("racer-you");
          stand.appendChild(line);
        }
      }
      if(this.type==="race"){
        if(g.endlessScore>=350){g.showCompetitionResult("Você chegou à meta!");return;}
        const winner=this.rivals.find(b=>b.alive&&b.x>=3555);
-       if(winner){g.showCompetitionResult(winner.name+" chegou primeiro.");return;}
+       if(winner){g.showCompetitionResult(racerLabel(winner)+" chegou primeiro.");return;}
      }else if(this.type==="distance"&&this.clock>=60){
        const rank=1+this.rivals.filter(b=>b.x>g.player.x).length;
        g.showCompetitionResult("Tempo esgotado. Sua posição: "+rank+"º");
@@ -430,7 +465,7 @@
        }
        ctx.globalAlpha=.85;ctx.fillStyle=theme.paper;
        ctx.font="10px "+FONT;ctx.fillText(
-         b.name+" ♥"+b.lives,b.x-14,b.y-9);
+         racerLabel(b)+" ♥"+b.lives,b.x-14,b.y-9);
        if(this.clock<(b.inversionDelayUntil||0)){
          ctx.fillStyle="#ffd88a";ctx.font="bold 8px "+FONT;
          ctx.fillText("AJUSTANDO",b.x-11,b.y-20);
@@ -449,7 +484,7 @@
    document.getElementById("endless-result").classList.add("hidden");
    let lines=reason+"\nSua distância: "+(this.endlessScore||0)+" m";
    const race=this.level.traps.find(t=>t instanceof CompetitionTraining);
-   if(race)lines+="\n"+race.rivals.map(b=>b.name+": "+
+   if(race)lines+="\n"+race.rivals.map(b=>racerLabel(b)+": "+
      Math.floor((b.x-55)/10)+" m"+(" ♥"+b.lives+(b.alive?"":" (eliminado)"))).join("\n");
    document.getElementById("competition-score").textContent=lines;
    compResult.classList.remove("hidden");

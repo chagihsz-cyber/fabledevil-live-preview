@@ -8,8 +8,19 @@
   if(typeof module!=="undefined"&&module.exports)module.exports=api;
   root.MotocaLiveCore=api;
 })(typeof globalThis!=="undefined"?globalThis:this,function () {
-  const LIVE_LIMITS=Object.freeze({minBots:5,maxBots:20,nameLength:20,idleMs:15000,
-    maxRuntimeObjects:48});
+  const LIVE_LIMITS=Object.freeze({minBots:5,defaultSystemBots:5,minSystemBots:0,
+    maxBots:20,nameLength:20,idleMs:15000,maxRuntimeObjects:48});
+  const LIVE_APPEARANCE_KEY="fabledevil_live_appearance_v5";
+  const LIVE_TEAMS=Object.freeze({
+    none:Object.freeze({label:"Sem time",color:""}),
+    red:Object.freeze({label:"Vermelho",color:"#ef7771"}),
+    blue:Object.freeze({label:"Azul",color:"#79c6ed"}),
+    green:Object.freeze({label:"Verde",color:"#89d29a"}),
+    yellow:Object.freeze({label:"Amarelo",color:"#e6d178"}),
+  });
+  const BOT_TRAITS=Object.freeze(["prudente","veloz","ousado","equilibrado","oportunista"]);
+  const BOT_PHYSICS=Object.freeze({width:26,height:32,maxSpeed:265,gravity:2150,
+    jumpVelocity:-645,groundAcceleration:2600,airAcceleration:1800,fallCap:980});
   const LIVE_GIFT_CONFIG=Object.freeze({
     names:Object.freeze({"ROSA":"life"}),
     ids:Object.freeze({"fd-life":"life","fd-portal":"portal","fd-obstacle":"obstacle",
@@ -29,6 +40,60 @@
       .replace(/<[^>]*>/g,"")
       .replace(/[^\p{L}\p{N} _.-]/gu,"")
       .replace(/\s+/g," ").trim().slice(0,LIVE_LIMITS.nameLength);
+  }
+  function boundedInteger(value,min,max,fallback){
+    const number=Number(value);
+    return Number.isFinite(number)?Math.min(max,Math.max(min,Math.round(number))):fallback;
+  }
+  function stableHash(value){
+    let hash=2166136261;
+    for(const char of String(value??"")){
+      hash^=char.codePointAt(0);hash=Math.imul(hash,16777619);
+    }
+    return hash>>>0;
+  }
+  function createBotIdentity(id,name=""){
+    const seed=stableHash(String(id??"")+"|"+sanitizeName(name));
+    const traitIndex=seed%BOT_TRAITS.length;
+    const reactionMs=75+(seed%151);
+    const inversionMs=300+((seed>>>8)%351);
+    const anticipation=[126,94,72,108,84][traitIndex]+((seed>>>16)%13)-6;
+    const hesitationEveryMs=4800+((seed>>>5)%4200);
+    const hesitationMs=traitIndex===1?35:55+((seed>>>13)%91);
+    return {seed,trait:BOT_TRAITS[traitIndex],reactionMs,inversionMs,anticipation,
+      hesitationEveryMs,hesitationMs,jumpHoldMs:185+((seed>>>19)%56),
+      portalBias:[28,48,66,44,58][traitIndex],physics:{...BOT_PHYSICS}};
+  }
+  function sanitizeHexColor(value){
+    const color=String(value??"").trim().toLocaleLowerCase("en-US");
+    return /^#[0-9a-f]{6}$/.test(color)?color:null;
+  }
+  function normalizeAppearance(value={}){
+    const team=Object.hasOwn(LIVE_TEAMS,value?.team)?value.team:"none";
+    return {color:sanitizeHexColor(value?.color)||"",team};
+  }
+  class AppearanceStore{
+    constructor(storage,key=LIVE_APPEARANCE_KEY){
+      this.storage=storage;this.key=key;this.state={version:1,participants:{}};
+      try{
+        const saved=JSON.parse(storage?.getItem?.(key)||"null");
+        if(saved&&saved.version===1&&saved.participants&&typeof saved.participants==="object"){
+          for(const [subject,value] of Object.entries(saved.participants)){
+            const key=this.subjectKey(subject);if(key)this.state.participants[key]=normalizeAppearance(value);
+          }
+        }
+      }catch{}
+    }
+    subjectKey(subject){return sanitizeName(subject).toLocaleLowerCase("pt-BR");}
+    get(subject){return {...(this.state.participants[this.subjectKey(subject)]||
+      {color:"",team:"none"})};}
+    set(subject,value){
+      const key=this.subjectKey(subject);const appearance=normalizeAppearance(value);
+      if(!key)return appearance;
+      this.state.participants[key]=appearance;
+      try{this.storage?.setItem?.(this.key,JSON.stringify(this.state));}catch{}
+      return {...appearance};
+    }
   }
   function parseParticipation(comment,viewer=""){
     const text=String(comment??"").normalize("NFKC").trim();
@@ -65,10 +130,12 @@
   }
   class LiveLobby {
     constructor(opts={}) {
-      this.minBots=opts.minBots??LIVE_LIMITS.minBots;
       this.maxBots=opts.maxBots??LIVE_LIMITS.maxBots;
       this.idleMs=opts.idleMs??LIVE_LIMITS.idleMs;
-      this.participants=[];this.lastViewerAt=0;this.systemSequence=0;
+      this.systemTarget=boundedInteger(opts.systemBots??opts.minBots,
+        LIVE_LIMITS.minSystemBots,this.maxBots,LIVE_LIMITS.defaultSystemBots);
+      this.minBots=this.systemTarget;
+      this.participants=[];this.lastViewerAt=0;this.systemSequence=0;this.participantSequence=0;
     }
     add(rawName,origin="viewer",now=0,viewer="") {
       if(origin!=="viewer"&&origin!=="system")return null;
@@ -82,32 +149,70 @@
         if(replace<0)return null;
         this.participants.splice(replace,1);
       }
-      const participant={id:"live-"+(this.systemSequence+1)+"-"+now+"-"+key,
+      this.participantSequence++;
+      const participant={id:"live-"+this.participantSequence+"-"+now+"-"+key,
         name,key,origin,viewer:origin==="viewer"?sanitizeName(viewer)||name:""};
       this.participants.push(participant);
       if(origin==="viewer")this.lastViewerAt=now;
       return participant;
     }
     remainingMs(now) {
-      if(this.participants.length>=this.minBots)return 0;
+      if(this.participants.filter(p=>p.origin==="system").length>=this.systemTarget)return 0;
       return Math.max(0,this.idleMs-(now-this.lastViewerAt));
     }
-    tick(now) {
-      const added=[];
-      if(this.remainingMs(now)>0)return {added,remainingMs:this.remainingMs(now)};
-      while(this.participants.length<this.minBots){
+    setSystemTarget(value){
+      this.systemTarget=boundedInteger(value,LIVE_LIMITS.minSystemBots,this.maxBots,
+        LIVE_LIMITS.defaultSystemBots);
+      this.minBots=this.systemTarget;return this.systemTarget;
+    }
+    ensureSystemBots(now=Date.now()){
+      const added=[],removed=[];
+      let systems=this.participants.filter(p=>p.origin==="system").length;
+      for(let i=this.participants.length-1;i>=0&&systems>this.systemTarget;i--){
+        if(this.participants[i].origin!=="system")continue;
+        removed.push(...this.participants.splice(i,1));systems--;
+      }
+      while(systems<this.systemTarget&&this.participants.length<this.maxBots){
         this.systemSequence++;
         const bot=this.add("Bot do sistema "+this.systemSequence,"system",now);
         if(!bot)break;
-        added.push(bot);
+        added.push(bot);systems++;
       }
-      return {added,remainingMs:this.remainingMs(now)};
+      return {added,removed,remainingMs:this.remainingMs(now)};
+    }
+    tick(now) {
+      if(this.remainingMs(now)>0)return {added:[],removed:[],remainingMs:this.remainingMs(now)};
+      return this.ensureSystemBots(now);
     }
     ensureMinimum(now=Date.now()) {
       const previous=this.lastViewerAt;this.lastViewerAt=now-this.idleMs;
       const result=this.tick(now);this.lastViewerAt=previous;return result;
     }
-    clear(){this.participants=[];this.lastViewerAt=0;this.systemSequence=0;}
+    clear(){this.participants=[];this.lastViewerAt=0;this.systemSequence=0;this.participantSequence=0;}
+  }
+  function chooseWeaponDrop(desired,floors,existing=[],options={}){
+    if(!Number.isFinite(desired)||!Array.isArray(floors)||!Array.isArray(existing))return null;
+    const minSpacing=options.minSpacing??280,windowSize=options.windowSize??960;
+    const maxVisible=options.maxVisible??2,maxShift=options.maxShift??150;
+    const candidates=[];
+    for(const floor of floors){
+      if(floor?.y!==480||!Number.isFinite(floor.x)||!Number.isFinite(floor.w)||floor.w<90)continue;
+      const left=floor.x+40,right=floor.x+floor.w-40;
+      const x=Math.max(left,Math.min(desired,right));
+      if(Math.abs(x-desired)>maxShift)continue;
+      candidates.push({x,y:floor.y-28});
+    }
+    candidates.sort((a,b)=>Math.abs(a.x-desired)-Math.abs(b.x-desired));
+    for(const candidate of candidates){
+      if(existing.some(drop=>Math.abs(drop.x-candidate.x)<minSpacing))continue;
+      const all=[...existing.map(drop=>drop.x),candidate.x].sort((a,b)=>a-b);
+      let crowded=false;
+      for(let i=0;i+maxVisible<all.length;i++){
+        if(all[i+maxVisible]-all[i]<windowSize){crowded=true;break;}
+      }
+      if(!crowded)return candidate;
+    }
+    return null;
   }
   function chooseBehindSpawn(positions,floors,sequence=0) {
     const valid=positions.filter(Number.isFinite);
@@ -183,7 +288,9 @@
       this.lastGift=now;return true;
     }
   }
-  return {LIVE_LIMITS,LIVE_GIFT_CONFIG,WEAPONS,sanitizeName,parseParticipation,
+  return {LIVE_LIMITS,LIVE_GIFT_CONFIG,LIVE_APPEARANCE_KEY,LIVE_TEAMS,WEAPONS,
+    BOT_TRAITS,BOT_PHYSICS,sanitizeName,createBotIdentity,sanitizeHexColor,
+    AppearanceStore,chooseWeaponDrop,parseParticipation,
     resolveGiftEffect,LiveEventGate,LiveLobby,chooseBehindSpawn,
     chooseRiskPortalLanding,WeaponState};
 });
@@ -191,36 +298,59 @@
 /* Browser adapter. It is intentionally additive and only wraps endless mode. */
 (function () {
   if(typeof document==="undefined"||typeof Game==="undefined")return;
-  const {LIVE_LIMITS,LiveLobby,chooseBehindSpawn,chooseRiskPortalLanding,
+  const {LIVE_LIMITS,LIVE_TEAMS,LiveLobby,chooseBehindSpawn,chooseRiskPortalLanding,
     sanitizeName,parseParticipation,resolveGiftEffect,LiveEventGate,
-    WeaponState,WEAPONS}=MotocaLiveCore;
+    WeaponState,WEAPONS,createBotIdentity,chooseWeaponDrop,AppearanceStore}=MotocaLiveCore;
   const {ProfileStore,RuleEngine,EFFECTS,normalizeProfile,exportProfiles,importProfiles,
     cleanText}=MotocaLiveRules;
-  const lobby=new LiveLobby();
+  const SYSTEM_BOTS_KEY="fabledevil_live_system_bots_v5";
+  function loadSystemBotCount(){
+    try{
+      const saved=localStorage.getItem(SYSTEM_BOTS_KEY);
+      if(saved!==null&&Number.isFinite(Number(saved)))
+        return Math.min(LIVE_LIMITS.maxBots,Math.max(0,Math.round(Number(saved))));
+    }catch{}
+    return LIVE_LIMITS.defaultSystemBots;
+  }
+  const lobby=new LiveLobby({systemBots:loadSystemBotCount()});
   const byId=id=>document.getElementById(id);
   const rosterEl=byId("live-roster"),countEl=byId("live-roster-count");
   const countdownEl=byId("live-countdown"),feedbackEl=byId("live-feedback");
   const goButton=byId("competition-go"),statusEl=byId("live-status");
   const livePanel=byId("live-panel"),liveToggle=byId("live-panel-toggle");
   const palette=["#79c6ed","#d4a3e8","#e6d178","#89d29a","#ed9d81",
-    "#9eb3ee","#e998c4","#9ed6cc","#e8b36c","#b3d77d","#d1a9ef","#8ed0e8"];
+    "#9eb3ee","#e998c4","#9ed6cc","#e8b36c","#b3d77d","#d1a9ef","#8ed0e8",
+    "#ef7771","#78b7a4","#d99bcb","#c3a26b","#8ea7d9","#c78f73","#81bd7d","#b19bd8"];
   let simulatedSequence=0,bridge=null,effectSequence=0;
   const eventGate=new LiveEventGate(),pendingEffects=[];
   const lastJoinByViewer=new Map();
   const profileStore=new ProfileStore(localStorage);
+  const appearanceStore=new AppearanceStore(localStorage);
   let ttsSessionEnabled=false,lastSpokenAt=-Infinity;
   const eventHistory=[];
   const clockMs=()=>Math.floor((typeof performance!=="undefined"?performance.now():Date.now()));
-  const colorFor=index=>index<palette.length?palette[index]:
-    `hsl(${Math.round((index*137.508)%360)} 62% ${58+(index%3)*6}%)`;
+  const colorFor=index=>palette[index%palette.length];
+  const teamFor=value=>LIVE_TEAMS[value]||LIVE_TEAMS.none;
+  function participantAppearance(participant,index){
+    const saved=appearanceStore.get(participant.name);
+    const team=teamFor(saved.team);
+    return {color:saved.color||team.color||colorFor(index),personalColor:saved.color,
+      team:saved.team,teamLabel:team.label,teamColor:team.color};
+  }
 
   function createLiveBot(participant,index){
+    const identity=createBotIdentity(participant.key,participant.name);
+    const appearance=participantAppearance(participant,index);
     return {participantId:participant.id,name:participant.name,origin:participant.origin,
-      viewer:participant.viewer,color:colorFor(index),speed:265,
-      x:55,y:448,w:26,h:32,vy:0,vx:0,grounded:true,face:1,
+      viewer:participant.viewer,color:appearance.color,personalColor:appearance.personalColor,
+      team:appearance.team,teamLabel:appearance.teamLabel,teamColor:appearance.teamColor,
+      ai:identity,trait:identity.trait,speed:identity.physics.maxSpeed,
+      x:55-index*.75,y:448,w:identity.physics.width,h:identity.physics.height,
+      vy:0,vx:0,grounded:true,face:1,
       squash:0,jumping:false,coyote:0,jumpHold:0,
       lives:Game.maxHearts||10,alive:true,respawnTimer:0,protectedUntil:0,
-      jumps:0,deadCount:0,safeX:55,lastY:448,phase:index*1.31,stuckFor:0};
+      jumps:0,deadCount:0,safeX:55-index*.75,lastY:448,
+      phase:(identity.seed%6283)/1000,stuckFor:0};
   }
   function syncLiveBots(){
     if(Game.arcadeMode!=="endless"||!Game.level)return null;
@@ -230,8 +360,15 @@
     runtime.rivals=lobby.participants.slice(0,LIVE_LIMITS.maxBots).map((participant,index)=>{
       const bot=current.get(participant.id)||createLiveBot(participant,index);
       bot.name=participant.name;bot.origin=participant.origin;bot.viewer=participant.viewer;
-      bot.color=colorFor(index);return bot;
+      const appearance=participantAppearance(participant,index);
+      bot.color=appearance.color;bot.personalColor=appearance.personalColor;
+      bot.team=appearance.team;bot.teamLabel=appearance.teamLabel;
+      bot.teamColor=appearance.teamColor;return bot;
     });
+    const mainAppearance=appearanceStore.get("Protagonista");
+    const mainTeam=teamFor(mainAppearance.team);
+    if(Game.player){Game.player.liveColor=mainAppearance.color||mainTeam.color||null;
+      Game.player.liveTeam=mainAppearance.team;Game.player.liveTeamLabel=mainTeam.label;}
     return runtime;
   }
 
@@ -457,6 +594,52 @@
     }catch(error){feedback(error.message||"Arquivo de perfis inválido.");}};reader.readAsText(file);
   });
   renderProfileEditor();renderHistory();
+  let appearanceSignature="";
+  function renderAppearanceEditor(force=false){
+    const list=byId("live-appearance-list");if(!list)return;
+    const subjects=[{name:"Protagonista",index:-1},...lobby.participants.map((participant,index)=>
+      ({name:participant.name,index}))];
+    const signature=JSON.stringify(subjects.map(subject=>
+      [subject.name,appearanceStore.get(subject.name)]));
+    if(!force&&signature===appearanceSignature)return;
+    appearanceSignature=signature;list.replaceChildren();
+    for(const subject of subjects){
+      const saved=appearanceStore.get(subject.name);
+      const row=document.createElement("div");row.className="live-appearance-row";
+      const name=document.createElement("strong");name.textContent=subject.name;
+      const color=document.createElement("input");color.type="color";
+      color.value=saved.color||(subject.index<0?"#2c302d":colorFor(subject.index));
+      color.setAttribute("aria-label","Cor de "+subject.name);
+      const team=document.createElement("select");
+      team.setAttribute("aria-label","Time de "+subject.name);
+      for(const [value,details] of Object.entries(LIVE_TEAMS)){
+        const option=document.createElement("option");option.value=value;
+        option.textContent=details.label;option.selected=value===saved.team;team.appendChild(option);
+      }
+      const apply=colorValue=>{
+        appearanceStore.set(subject.name,{color:colorValue,team:team.value});
+        appearanceSignature="";syncLiveBots();renderAppearanceEditor(true);
+        feedback("Cor e time de "+subject.name+" atualizados.");
+      };
+      color.addEventListener("change",()=>apply(color.value));
+      team.addEventListener("change",()=>apply(appearanceStore.get(subject.name).color));
+      row.append(name,color,team);list.appendChild(row);
+    }
+  }
+  function setSystemBotCount(value,{persist=true}={}){
+    const count=lobby.setSystemTarget(value);
+    if(persist)try{localStorage.setItem(SYSTEM_BOTS_KEY,String(count));}catch{}
+    for(const id of ["live-system-bots","endless-system-bots"]){
+      const input=byId(id);if(input)input.value=String(count);
+    }
+    const current=lobby.participants.filter(p=>p.origin==="system").length;
+    if(current>count)lobby.ensureSystemBots(clockMs());
+    appearanceSignature="";renderLobby();return count;
+  }
+  for(const id of ["live-system-bots","endless-system-bots"]){
+    const input=byId(id);if(input){input.value=String(lobby.systemTarget);
+      input.addEventListener("change",event=>setSystemBotCount(event.currentTarget.value));}
+  }
   function renderLobby(now=clockMs()) {
     const result=lobby.tick(now);
     if(result.added.length)feedback("Vagas completadas com bots do sistema.");
@@ -466,22 +649,26 @@
         const item=document.createElement("li");
         const origin=document.createElement("small");
         item.textContent=participant.name;
+        const appearance=participantAppearance(participant,
+          lobby.participants.indexOf(participant));
+        if(appearance.team!=="none")item.textContent+=" · "+appearance.teamLabel;
+        item.style.borderColor=appearance.personalColor||appearance.teamColor||"";
         origin.textContent=participant.origin==="viewer"&&participant.viewer&&
           participant.viewer!==participant.name?"via "+participant.viewer:participant.origin;
         item.appendChild(origin);rosterEl.appendChild(item);
       }
     }
     if(countEl)countEl.textContent=lobby.participants.length+"/"+
-      LIVE_LIMITS.maxBots+" participantes";
+      LIVE_LIMITS.maxBots+" participantes · "+lobby.systemTarget+" sistema";
     const remaining=Math.ceil(lobby.remainingMs(now)/1000);
-    if(countdownEl)countdownEl.textContent=lobby.participants.length>=lobby.minBots
-      ?"mínimo pronto":"completa em "+remaining+" s";
+    if(countdownEl)countdownEl.textContent=lobby.participants.filter(p=>p.origin==="system").length>=
+      lobby.systemTarget?"vagas abertas a espectadores":"completa em "+remaining+" s";
     if(goButton){
-      const ready=lobby.participants.length>=lobby.minBots;
-      goButton.disabled=!ready;
-      goButton.textContent=ready?"INICIAR COM "+lobby.participants.length+" BOTS":"AGUARDANDO 5 BOTS";
+      goButton.disabled=false;
+      goButton.textContent="INICIAR · "+lobby.systemTarget+" BOTS DO SISTEMA";
     }
     syncLiveBots();
+    renderAppearanceEditor();
   }
   function addViewer(rawName,now=clockMs(),viewer="") {
     const participant=lobby.add(rawName,"viewer",now,viewer);
@@ -518,9 +705,7 @@
     renderLobby();
   });
   goButton?.addEventListener("click",event=>{
-    if(lobby.participants.length<lobby.minBots){
-      event.preventDefault();event.stopImmediatePropagation();renderLobby();
-    }
+    lobby.ensureSystemBots(clockMs());renderLobby();
   },true);
 
   function handleBridgeEvent(payload) {
@@ -754,36 +939,36 @@
   class LiveWeaponRuntime {
     constructor(){
       this.playerWeapon=new WeaponState();this.botWeapons=new Map();
-      this.drops=[];this.projectiles=[];this.nextDropX=760;this.dropSequence=0;
+      this.drops=[];this.projectiles=[];this.nextDropX=820;this.dropSequence=0;
       this.giftGate=new WeaponState();this.lastHud="";
       this.regularEnabled=!!Game.liveWeaponsEnabled;
       const starter=Game.endlessKind==="peace"?"glue":"pistol";
       if(this.regularEnabled){
         this.playerWeapon.grantTemporary(starter,Game.time,15);
-        this.addDrop(240,starter);this.addDrop(480);
       }
     }
-    addDrop(x,type){
+    nextDropDistance(){
+      const distances=[760,920,700,840,1000,780];
+      return distances[this.dropSequence%distances.length];
+    }
+    addDrop(x,type,options={}){
       if(this.drops.length>=7)return false;
       const kinds=Game.endlessKind==="peace"?["glue"]:
         ["pistol","smg","shotgun","laser","burst","glue"];
       const selected=WEAPONS[type]?type:kinds[this.dropSequence%kinds.length];
-      this.dropSequence++;
-      // Place pickups on real generated floor, never in a procedural pit.
-      const floors=(Game.level?.solids||[]).filter(f=>f.y===480&&f.w>=85);
-      const candidates=floors.map(f=>({
-        x:Math.max(f.x+30,Math.min(x,f.x+f.w-40)),
-      })).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x));
-      const landing=candidates.find(f=>Math.abs(f.x-x)<=350);
+      // Use only a nearby generated floor. Never clamp several pending drops
+      // onto the final floor of the current procedural chunk.
+      const landing=chooseWeaponDrop(x,Game.level?.solids||[],this.drops,options);
       if(!landing)return false;
-      this.drops.push({x:Math.max(85,landing.x),y:452,type:selected});return true;
+      this.dropSequence++;
+      this.drops.push({...landing,type:selected});return true;
     }
-    requestGiftDrop(now){
+    requestGiftDrop(now,type){
       if(Game.arcadeMode!=="endless"||!Game.liveWeaponsEnabled||
          !this.giftGate.allowGiftDrop(now))return false;
       const race=Game.level?.traps.find(t=>t.constructor.name==="CompetitionTraining");
       const lead=Math.max(Game.player?.x||55,...(race?.rivals||[]).map(b=>b.x));
-      return this.addDrop(lead+180);
+      return this.addDrop(lead+180,type);
     }
     stateFor(holder){
       if(holder===Game.player)return this.playerWeapon;
@@ -857,8 +1042,8 @@
       if(this.regularEnabled){
         this.drops=this.drops.filter(drop=>drop.x>=lead-1100);
         while(lead+420>=this.nextDropX){
-          this.addDrop(this.nextDropX);
-          this.nextDropX+=440;
+          this.addDrop(this.nextDropX,undefined,{minSpacing:700});
+          this.nextDropX+=this.nextDropDistance();
         }
       }
       for(let i=this.drops.length-1;i>=0;i--){
@@ -1039,8 +1224,12 @@
     if(effect==="weapon"){
       const type=Game.endlessKind==="peace"?"glue":
         (effectSequence++%2?"burst":"laser");
-      const added=Game.liveWeapons?.grantTemporaryForEvent(event,type,Game.time)||false;
-      if(added)announceEvent("Arma temporária "+type.toUpperCase()+" liberada por 15 s.");
+      const added=Game.liveWeaponsEnabled
+        ?Game.liveWeapons?.requestGiftDrop(Game.time,type)
+        :Game.liveWeapons?.grantTemporaryForEvent(event,type,Game.time)||false;
+      if(added)announceEvent(Game.liveWeaponsEnabled
+        ?"Pickup "+type.toUpperCase()+" criado com espaçamento seguro."
+        :"Arma temporária "+type.toUpperCase()+" liberada por 15 s.");
       return added;
     }
     if(effect==="power"){
@@ -1073,7 +1262,9 @@
   }
 
   Game.startEndless=function(){
-    if((this.requestedEndlessKind||"peace")==="competition")lobby.ensureMinimum(clockMs());
+    // System participants are present on the very first frame. The 15-second
+    // timer remains only as a legacy lobby fallback before a run starts.
+    lobby.ensureSystemBots(clockMs());
     this.liveWeaponsEnabled=!!this.liveWeaponsEnabled;
     this.liveAutoFire=!!this.liveAutoFire;
     const result=baseStartEndless.call(this);
@@ -1093,5 +1284,6 @@
   if(typeof setInterval==="function")setInterval(()=>renderLobby(),250);
   renderLobby(0);
   window.MotocaLive={lobby,addViewer,renderLobby,handleBridgeEvent,processEvent,
-    triggerEffect,profileStore,ruleEngine,simulated:true,realTikTokTested:false};
+    triggerEffect,profileStore,appearanceStore,setSystemBotCount,ruleEngine,
+    simulated:true,realTikTokTested:false};
 })();

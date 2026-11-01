@@ -2036,7 +2036,7 @@ const Game = {
     ctx.translate(cx, by);
     ctx.scale(sx, stretchY);
 
-    ctx.fillStyle = bodyColor || theme.ink;
+    ctx.fillStyle = bodyColor || p.liveColor || theme.ink;
     roundRect(-p.w / 2, -p.h, p.w, p.h, 7);
     ctx.fill();
 

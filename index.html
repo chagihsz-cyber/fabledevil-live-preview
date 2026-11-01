@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=live-v4" />
+<link rel="stylesheet" href="style.css?v=live-v5" />
 </head>
 <body>
 <!-- TOP CONTROL BAR (always visible) -->
@@ -86,6 +86,12 @@
       <span id="live-roster-count">0/20 participantes</span>
       <span id="live-countdown" role="timer">completa em 15 s</span>
     </div>
+    <section class="live-bot-setup" aria-labelledby="live-bot-setup-title">
+      <h2 id="live-bot-setup-title">Largada e vagas</h2>
+      <label for="live-system-bots">Bots do sistema no início</label>
+      <input id="live-system-bots" type="number" min="0" max="20" step="1" value="5" inputmode="numeric">
+      <p>De 0 a 20. Espectadores com #Nome ocupam vagas e, com 20 participantes, substituem primeiro bots do sistema.</p>
+    </section>
     <section class="live-profile-tools" aria-labelledby="live-profile-title">
       <h2 id="live-profile-title">Perfil ativo</h2>
       <div class="live-profile-row">
@@ -123,6 +129,13 @@
       <label for="live-tts-voice">Voz preferida</label>
       <select id="live-tts-voice"><option value="">Voz padrão do navegador</option></select>
       <p>TTS DO NAVEGADOR é separado das vozes configuradas no TikFinity/OBS.</p>
+    </section>
+    <section class="live-appearance" aria-labelledby="live-appearance-title">
+      <div class="live-section-heading">
+        <h2 id="live-appearance-title">Cores e times</h2>
+        <span>aplica imediatamente e salva neste navegador</span>
+      </div>
+      <div id="live-appearance-list" class="live-appearance-list"></div>
     </section>
     <form id="live-name-form" class="live-name-form">
       <label for="live-name">Simular comentário #Nome</label>
@@ -169,6 +182,8 @@
       <option value="last">Último sobrevivente</option>
       <option value="distance">Maior distância em 60 s</option>
     </select>
+    <label for="endless-system-bots">Bots do sistema na largada (0–20)</label>
+    <input id="endless-system-bots" type="number" min="0" max="20" step="1" value="5" inputmode="numeric">
     <label><input id="endless-weapons" type="checkbox"> Ativar armas e drops nesta partida</label>
     <label><input id="endless-autofire" type="checkbox"> Permitir autoatirar quando houver arma</label>
     <label><input id="endless-main-bot" type="checkbox"> Personagem principal controlado por bot</label>
@@ -294,15 +309,15 @@
 
 
 
-<script src="game.js?v=live-v4"></script>
+<script src="game.js?v=live-v5"></script>
 <script src="dynamic_traps.js?v=arcade9"></script>
 <script src="stage_mechanics.js?v=arcade9"></script>
 <script src="campaign_chapter2.js?v=arcade9"></script>
 <script src="arcade_modes.js?v=arcade9"></script>
 <script src="lab_chambers.js?v=arcade9"></script>
-<script src="adventure_modes.js?v=live-v4"></script>
-<script src="live_rules.js?v=live-v4"></script>
-<script src="live_modes.js?v=live-v4"></script>
-<script src="player_autopilot.js?v=live-v4"></script>
+<script src="adventure_modes.js?v=live-v5"></script>
+<script src="live_rules.js?v=live-v5"></script>
+<script src="live_modes.js?v=live-v5"></script>
+<script src="player_autopilot.js?v=live-v5"></script>
 </body>
 </html>
