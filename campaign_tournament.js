@@ -216,7 +216,7 @@
             personalColor:appearance.color||'',team:appearance.team||'none',
             ai,trait:ai.trait,speed:265,x:base.x-ids.size*.65,y:base.y,
             w:26,h:32,vy:0,vx:0,grounded:false,face:1,squash:0,jumping:false,
-            coyote:0,jumpHold:0,lives:1,alive:true,respawnTimer:0,
+            coyote:0,jumpHold:0,lives:10,alive:true,respawnTimer:0,
             protectedUntil:0,jumps:0,deadCount:0,safeX:base.x,lastY:base.y,
             phase:(ai.seed%6283)/1000,stuckFor:0,qualified:false};
           bots.push(bot);ids.add(person.id);

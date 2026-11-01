@@ -276,12 +276,9 @@
    }
    loseLife(bot,g) {
      if(this.clock<bot.protectedUntil||g.actorPower?.(bot,'shield'))return;
-     if(g.tournament?.active){
-       bot.lives=0;bot.alive=false;bot.respawnTimer=0;
-       g.tournament.eliminated.add(bot.participantId||bot.name);
-       g.clearActorPowers?.(bot);g.tournament.renderHud();
-       g.tournament.tryAdvance?.();return;
-     }
+     // Tournament bots share the protagonist's 10-life budget: a hit costs
+     // exactly one life, never all remaining lives. Only the final hit
+     // eliminates the bot and may make the next-stage quota impossible.
      bot.lives=Math.max(0,bot.lives-1);
      bot.deadCount++;
      bot.respawnTimer=.5;
@@ -289,7 +286,16 @@
      g.clearActorPowers?.(bot);
      bot.y+=bot.h-32;bot.w=26;bot.h=32;bot.morph=null;
      bot.reverseUntil=0;bot.reverseType=null;bot.reverseSource=null;
-     if(bot.lives===0)bot.alive=false;
+     if(bot.lives===0){
+       bot.alive=false;bot.respawnTimer=0;
+       if(g.tournament?.active){
+         g.tournament.eliminated.add(bot.participantId||bot.name);
+         g.tournament.renderHud();
+         g.tournament.tryAdvance?.();
+       }
+     }else if(g.tournament?.active){
+       g.tournament.renderHud();
+     }
    }
    update(dt,g) {
      if(g.state!=="play")return;
@@ -302,7 +308,8 @@
          bot.respawnTimer=Math.max(0,bot.respawnTimer-dt);
          if(bot.respawnTimer===0) {
            const floors=g.level.solids.filter(s=>s.y===480&&s.w>=60);
-           const desired=Math.max(35,bot.safeX-90);
+           const desired=g.tournament?.active
+             ?Math.max(35,g.level.spawn.x):Math.max(35,bot.safeX-90);
            const floor=floors.find(s=>desired>=s.x+8&&desired<=s.x+s.w-28)||
              floors.reduce((a,b)=>Math.abs(a.x-desired)<Math.abs(b.x-desired)?a:b,
                {x:35,w:140});

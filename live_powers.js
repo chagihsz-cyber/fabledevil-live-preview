@@ -27,7 +27,9 @@
       state.set(type,until);return true;
     }
     remaining(actor,type,now){
-      return Math.max(0,Math.min(15,(this.states.get(actor)?.get(type)||0)-now));
+      const expiry=actor&&this.states.get(actor)?.get(type);
+      if(!Number.isFinite(expiry))return 0;
+      return Math.max(0,Math.min(15,expiry-now));
     }
     active(actor,type,now){return this.remaining(actor,type,now)>0;}
     list(actor,now){return keys.filter(type=>this.active(actor,type,now)).map(type=>({
