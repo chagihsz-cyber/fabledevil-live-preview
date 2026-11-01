@@ -201,11 +201,31 @@ class SawPlatform {
 class PhantomFloor {
   constructor(x,y,w=115,opts={}){
     this.rect=R(x,y,w,16);this.x=x;this.y=y;this.w=w;
-    this.fade=0;this.trigger=opts.trigger??x-90;
+    this.trigger=opts.trigger??x-90;
+    this.hiddenFor=Math.max(.5,opts.hiddenFor??1.8);
+    this.visibleFor=Math.max(.5,opts.visibleFor??1.2);
+    this.reset();
   }
-  reset(){this.fade=0}
+  reset(){this.fade=0;this.phase='ready';this.elapsed=0}
   update(dt,g){
-    if(gameActors(g).some(p=>p.x>this.trigger))this.fade=clamp(this.fade+dt*4.8,0,1);
+    if(this.phase==='ready'){
+      if(gameActors(g).some(p=>p.x>this.trigger)){
+        this.phase='fading';this.elapsed=0;
+        this.fade=clamp(this.fade+dt*4.8,0,1);
+      }
+    }else if(this.phase==='fading'){
+      this.fade=clamp(this.fade+dt*4.8,0,1);
+      if(this.fade>=1){this.phase='hidden';this.elapsed=0;}
+    }else if(this.phase==='hidden'){
+      this.elapsed+=dt;
+      if(this.elapsed>=this.hiddenFor){this.phase='restoring';this.elapsed=0;}
+    }else if(this.phase==='restoring'){
+      this.fade=clamp(this.fade-dt*3.5,0,1);
+      if(this.fade<=0){this.phase='cooldown';this.elapsed=0;}
+    }else if(this.phase==='cooldown'){
+      this.elapsed+=dt;
+      if(this.elapsed>=this.visibleFor){this.phase='ready';this.elapsed=0;}
+    }
   }
   solids(){return this.fade<.42?[this.rect]:[]}
   kills(){return []}

@@ -427,6 +427,7 @@ class CrumblePlatform {
   constructor(rect, opts = {}) {
     this.home = { ...rect };
     this.delay = opts.delay ?? 0.35;
+    this.reappearAfter = Math.max(.5, opts.reappearAfter ?? 2.4);
     this.reset();
   }
   reset() { this.rect = { ...this.home }; this.state = "idle"; this.t = 0; this.vy = 0; }
@@ -442,12 +443,21 @@ class CrumblePlatform {
     } else if (this.state === "fall") {
       this.vy += 2400 * dt;
       this.rect.y += this.vy * dt;
+      if (this.rect.y > H + 40) { this.state="missing"; this.t=0; }
+    } else if (this.state === "missing") {
+      this.t += dt;
+      if(this.t >= this.reappearAfter){
+        this.rect={...this.home};this.state="recovering";this.t=0;this.vy=0;
+      }
+    } else if (this.state === "recovering") {
+      this.t += dt;
+      if(this.t>=1){this.state="idle";this.t=0;}
     }
   }
-  solids() { return this.state === "fall" ? [] : [this.rect]; }
+  solids() { return ["fall","missing"].includes(this.state) ? [] : [this.rect]; }
   kills() { return []; }
   draw() {
-    if (this.rect.y > H + 40) return;
+    if (this.state === "missing" || this.rect.y > H + 40) return;
     const ox = this.state === "shaking" ? rand(-2, 2) : 0;
     ctx.fillStyle = theme.ink;
     ctx.fillRect(this.rect.x + ox, this.rect.y, this.rect.w, this.rect.h);

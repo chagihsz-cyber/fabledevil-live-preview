@@ -175,8 +175,12 @@
     apenas seu personagem volta ao início. A campanha clássica permanece separada.</p>
     <label for="phase-initial-bots">Bots na primeira fase (0–20)</label>
     <input id="phase-initial-bots" type="number" min="0" max="20" value="20">
-    <label for="phase-bot-caps">Limite de bots por fase (separe por vírgulas)</label>
-    <input id="phase-bot-caps" value="20,16,13,10,8,6,5,4,3,2,1" autocomplete="off">
+    <label for="phase-bot-caps">Bots na fase e cota mínima de classificados (separe por vírgulas)</label>
+    <p>Exemplo: 20, 18, 14 = 20 na primeira; os primeiros 18 na porta avançam;
+    depois os primeiros 14 avançam. Se morrerem tantos que não seja possível cumprir a
+    cota, a etapa é eliminada e não avança.</p>
+    <input id="phase-bot-caps" value="20,18,14,11,9,7,5,4,3,2,1" autocomplete="off">
+    <p id="phase-feedback" class="live-feedback" role="alert" aria-live="polite"></p>
     <label for="phase-loot-caps">Quantidade de loot por fase</label>
     <input id="phase-loot-caps" value="20,16,13,10,8,6,5,4,3,2,1" autocomplete="off">
     <label for="phase-zombies">Zumbis nas fases (desligados por padrão)</label>
@@ -193,7 +197,7 @@
   </div>
   <div id="tournament-counter" class="tournament-counter hidden" aria-live="polite"></div>
   <div id="tournament-results" class="arcade-dialog hidden" role="dialog" aria-label="Final do torneio">
-    <h2>🏆 TORNEIO ENCERRADO</h2>
+    <h2 id="tournament-result-heading">🏆 TORNEIO ENCERRADO</h2>
     <p id="tournament-winner">Vencedor definido pela última fase.</p>
     <button id="phase-result-restart" type="button">NOVO TORNEIO</button>
     <button id="phase-result-menu" type="button">VOLTAR AO MENU</button>
@@ -342,8 +346,8 @@
 
 
 
-<script src="game.js?v=live-v8"></script>
-<script src="dynamic_traps.js?v=live-v6"></script>
+<script src="game.js?v=live-v9"></script>
+<script src="dynamic_traps.js?v=live-v9"></script>
 <script src="stage_mechanics.js?v=live-v7"></script>
 <script src="campaign_chapter2.js?v=arcade9"></script>
 <script src="arcade_modes.js?v=live-v7"></script>
@@ -353,6 +357,6 @@
 <script src="live_rules.js?v=live-v7"></script>
 <script src="live_modes.js?v=live-v7"></script>
 <script src="player_autopilot.js?v=live-v7"></script>
-<script src="campaign_tournament.js?v=live-v8"></script>
+<script src="campaign_tournament.js?v=live-v9"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@
   root.FableTournament=api;
 })(typeof globalThis!=='undefined'?globalThis:this,function(){
   const STORAGE='fabledevil_tournament_v7';
-  const DEFAULT_BOTS=Object.freeze([20,16,13,10,8,6,5,4,3,2,1]);
+  const DEFAULT_BOTS=Object.freeze([20,18,14,11,9,7,5,4,3,2,1]);
   const DEFAULT_LOOT=Object.freeze([20,16,13,10,8,6,5,4,3,2,1]);
   function parseCounts(value,fallback=DEFAULT_BOTS,max=20){
     const entries=Array.isArray(value)?value:String(value??'').split(/[,;\n]+/);
@@ -36,9 +36,10 @@
   function qualificationStatus(bots,nextCap,playerQualified=false){
     const active=bots.filter(b=>b.alive&&b.lives>0);
     const passed=active.filter(b=>b.qualified);
-    const required=Math.min(Math.max(0,nextCap),active.length);
-    return {required,passed:passed.length,
-      complete:required>0?passed.length>=required:!!playerQualified};
+    const required=Math.max(0,Math.min(20,Math.floor(Number(nextCap)||0)));
+    return {required,passed:passed.length,possible:active.length>=required,
+      complete:required>0?passed.length>=required:!!playerQualified,
+      impossible:active.length<required};
   }
   function planLoot(solids,amount,traps=[]){
     const floors=solids.filter(s=>s.w>=25&&s.y>=80&&s.y<=480&&s.h>3&&
@@ -89,7 +90,11 @@
     try{
       const stored=JSON.parse(storage.getItem(STORAGE));
       if(!stored||stored.version!==1)throw Error('unavailable');
-      return {version:1,botCaps:parseCounts(stored.botCaps,DEFAULT_BOTS),
+      const oldPreset=[20,16,13,10,8,6,5,4,3,2,1];
+      const storedCaps=parseCounts(stored.botCaps,DEFAULT_BOTS);
+      const migratedCaps=JSON.stringify(storedCaps)===JSON.stringify(oldPreset)
+        ?[...DEFAULT_BOTS]:storedCaps;
+      return {version:1,botCaps:migratedCaps,
         lootCaps:parseCounts(stored.lootCaps,DEFAULT_LOOT,30),
         initialBots:Math.max(0,Math.min(20,Math.round(Number(stored.initialBots)||0))),
         zombies:['off','normal','hard'].includes(stored.zombies)?stored.zombies:'off',
@@ -167,6 +172,7 @@
       tryAdvance(){
         if(!this.active||this.finished||game.state!=='play')return false;
         const status=this.qualification();
+        if(status.impossible){this.fail(status);return false;}
         if(!status.complete)return false;
         if(this.nextCap()<=1||this.phaseIndex>=10){
           this.finish();return true;
@@ -216,6 +222,20 @@
           bots.push(bot);ids.add(person.id);
         }
         this.renderHud();
+        if(game.state==='play')this.tryAdvance();
+      },
+      fail(status=this.qualification()){
+        if(this.finished)return;
+        this.finished=true;this.active=false;
+        game.state='tournamentFailed';
+        const caption=ui('tournament-winner');
+        if(ui('tournament-result-heading'))
+          ui('tournament-result-heading').textContent='❌ COTA NÃO ATINGIDA';
+        if(caption)caption.textContent='Fase eliminada: '+status.passed+'/'+
+          status.required+' classificados. Não há sobreviventes suficientes. '+
+          'Inicie um novo torneio.';
+        resultPanel?.classList.remove('hidden');
+        scoreboard?.classList.remove('hidden');
       },
       finish(){
         this.finished=true;this.active=false;
@@ -227,6 +247,8 @@
         const winner=this.playerQualified&&(!leading||game.player.x>=leading.x)
           ?'Protagonista':(leading?.name||'Protagonista');
         const caption=ui('tournament-winner');
+        if(ui('tournament-result-heading'))
+          ui('tournament-result-heading').textContent='🏆 TORNEIO ENCERRADO';
         if(caption)caption.textContent='🏆 '+winner+' venceu o torneio!';
         resultPanel?.classList.remove('hidden');
       },
@@ -240,6 +262,8 @@
       if(active&&!firstLoad&&run.lastStageIndex===index)
         run.survivors=(run.race?.rivals||run.survivors).filter(b=>b.alive&&b.qualified);
       if(active&&run.lastStageIndex!==null&&run.lastStageIndex!==index){
+        // No manual / delayed transition is allowed to bypass the door quota.
+        if(!run.qualification().complete||run.qualification().impossible)return;
         const cap=countAt(run.botCaps,run.phaseIndex+1);
         const selected=selectSurvivors((run.race?.rivals||[]).filter(b=>b.qualified),cap);
         for(const bot of run.race?.rivals||[])
@@ -250,6 +274,7 @@
       const result=baseLoad.call(this,index);
       if(!active)return result;
       run.lastStageIndex=index;run.firstLoad=false;
+      scoreboard?.replaceChildren?.(); // old dead bots must not persist on new stage
       this.arcadeMode='campaign';
       this.endlessKind=config.zombies==='off'?'peace':'zombies';
       this.zombieDifficulty=config.zombies==='hard'?'hard':'normal';
@@ -309,7 +334,7 @@
         const delay=this.tournamentRespawnTimer-dt;
         this.state='play';
         for(const trap of this.level.traps){
-          if(trap===run.race||trap.constructor?.name==='ZombieHorde')
+          if(trap===run.race||['ZombieHorde','PhantomFloor','CrumblePlatform'].includes(trap.constructor?.name))
             trap.update(dt,this);
           if(this.state!=='play')return;
         }
@@ -366,8 +391,20 @@
       startGame(window.MotocaArcade?.campaign?.highestUnlocked?.()||0);
     });
     ui('phase-start')?.addEventListener('click',()=>{
+      const requestedCaps=parseCounts(ui('phase-bot-caps').value,DEFAULT_BOTS);
+      const requestedInitial=Math.max(0,Math.min(20,Math.floor(Number(ui('phase-initial-bots').value)||0)));
+      const minimum=countAt(requestedCaps,1);
+      const invalidGrowth=requestedCaps.some((cap,i)=>i>0&&cap>requestedCaps[i-1]);
+      if(requestedInitial<minimum||invalidGrowth){
+        const feedback=ui('phase-feedback');
+        if(feedback)feedback.textContent='Para avançar, a cota mínima da fase 1 ('+
+          minimum+') deve caber na largada ('+requestedInitial+'). '+
+          'A sequência de cotas não pode aumentar. Ajuste os valores.';
+        return;
+      }
+      if(ui('phase-feedback'))ui('phase-feedback').textContent='';
       config=saveConfig(localStorage,{
-        botCaps:parseCounts(ui('phase-bot-caps').value,DEFAULT_BOTS),
+        botCaps:requestedCaps,
         lootCaps:parseCounts(ui('phase-loot-caps').value,DEFAULT_LOOT,30),
         initialBots:ui('phase-initial-bots').value,zombies:ui('phase-zombies').value,
         weapons:ui('phase-weapons').checked,powers:ui('phase-powers').checked,
