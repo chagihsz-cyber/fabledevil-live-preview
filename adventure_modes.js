@@ -279,7 +279,8 @@
      if(g.tournament?.active){
        bot.lives=0;bot.alive=false;bot.respawnTimer=0;
        g.tournament.eliminated.add(bot.participantId||bot.name);
-       g.clearActorPowers?.(bot);g.tournament.renderHud();return;
+       g.clearActorPowers?.(bot);g.tournament.renderHud();
+       g.tournament.tryAdvance?.();return;
      }
      bot.lives=Math.max(0,bot.lives-1);
      bot.deadCount++;
@@ -294,7 +295,7 @@
      if(g.state!=="play")return;
      this.clock+=dt;
      for(const bot of this.rivals) {
-       if(!bot.alive)continue;
+       if(!bot.alive||bot.qualified)continue;
        const ai=bot.ai||fallbackRivalIdentity(bot.participantId||bot.name,bot.name);
        bot.ai=ai;bot.trait=ai.trait;
        if(bot.respawnTimer>0) {
@@ -340,6 +341,8 @@
          takesPortal=chance*100<ai.portalBias&&bot.lives>1;
          bot.portalChoice=takesPortal?"risk":"avoid";
        }
+       const exitRoute=g.tournament?.active?
+         globalThis.FableTournament?.doorSteering(bot,g.level.door):null;
        const needsGapJump=playerFloor&&edgeDistance<Math.max(62,ai.anticipation*.72)&&
          edgeDistance>-18&&gap>15;
        const decisionKey=(needsGapJump?"gap":"")+(wallAhead?"wall":"")+
@@ -354,8 +357,10 @@
        // the bot glide through the portal with no visible decision.
        const portalUrgent=!!riskPortal&&!takesPortal&&
          riskPortal.x-(bot.x+bot.w)<45;
-       const shouldJump=bot.grounded&&!!decisionKey&&
-         (wallUrgent||portalUrgent||this.clock>=(bot.decisionReadyAt||0));
+       const shouldJump=bot.grounded&&(
+         (exitRoute?.jump&&!wallUrgent)||
+         (!!decisionKey&&(wallUrgent||portalUrgent||this.clock>=(bot.decisionReadyAt||0))
+           &&!(exitRoute?.near&&!wallUrgent&&!danger&&!exitRoute.jump)));
        const inversionRoom=g.level.traps.find(t=>t.constructor?.name==="ChaosRoom"&&
          (t.type==="mirror"||t.type==="chaos")&&
          bot.x+bot.w/2>t.x&&bot.x+bot.w/2<t.x+t.width&&
@@ -388,7 +393,10 @@
          ai.hesitationEveryMs;
        const hesitating=!decisionKey&&bot.grounded&&hesitationPhase<ai.hesitationMs;
        bot.hesitating=hesitating;
-       const target=(inversionReacting?-70:(hesitating?0:ai.physics.maxSpeed))*
+       const navigateExit=exitRoute?.near&&exitRoute.direction!==0;
+       const goalSpeed=navigateExit?ai.physics.maxSpeed*exitRoute.direction:
+         exitRoute?.near&&exitRoute.direction===0?0:hesitating?0:ai.physics.maxSpeed;
+       const target=(inversionReacting?-70:goalSpeed)*
          slowFactor*(mods.speed||1);
        const acceleration=bot.grounded?ai.physics.groundAcceleration:ai.physics.airAcceleration;
        if(target>bot.vx)bot.vx=Math.min(target,bot.vx+acceleration*dt);
@@ -439,13 +447,15 @@
        bot.squash=Math.max(0,(bot.squash||0)-dt);
        if(bot.grounded)bot.safeX=bot.x;
        bot.stuckFor=bot.x<=oldX+.2?(bot.stuckFor||0)+dt:0;
-       if(bot.stuckFor>.85+(ai.seed%500)/1000&&bot.grounded){
+       if(bot.stuckFor>.85+(ai.seed%500)/1000&&bot.grounded&&
+          (!exitRoute?.near||wallAhead||exitRoute.jump)){
          bot.vy=ai.physics.jumpVelocity*(mods.jump||1)*gravityDir;bot.grounded=false;bot.jumping=true;
          bot.jumpHold=ai.jumpHoldMs/1000;bot.stuckFor=0;bot.jumps++;
        }
        if(riskPortal&&takesPortal&&typeof riskPortal.transport==="function")
          riskPortal.transport(bot,g);
        if(this.botHit(bot,g))this.loseLife(bot,g);
+       else if(g.tournament?.active)g.tournament.botAtDoor?.(bot);
      }
      const stand=document.getElementById("race-standings");
      if(stand&&(g.arcadeMode==="endless"||g.tournament?.active)&&
@@ -492,12 +502,12 @@
    draw(){
      ctx.save();
      for(const b of this.rivals){
-       if(!b.alive||b.respawnTimer>0)continue;
+       if(!b.alive||b.respawnTimer>0||b.qualified)continue;
        const camera=Game.cameraX||0;
        if(b.x<camera-90||b.x>camera+1050)continue;
        ctx.globalAlpha=b.protectedUntil>this.clock?.48:.75;
        Game.drawPlayer(b,b.color);
-       if(this.clock<(b.slowedUntil||0)){
+       if(!Game.tournament?.active&&this.clock<(b.slowedUntil||0)){
          ctx.strokeStyle="#9be6d8";ctx.lineWidth=2;ctx.strokeRect(b.x-3,b.y-3,30,38);
        }
        ctx.globalAlpha=.85;ctx.fillStyle=theme.paper;

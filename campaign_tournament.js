@@ -21,6 +21,25 @@
         .localeCompare(String(b.participantId||b.name)))
       .slice(0,Math.max(0,cap));
   }
+  function doorSteering(bot,door){
+    if(!door||!door.pos)return null;
+    const d=door.pos;
+    const center=d.x+(door.w||38)/2;
+    const feet=bot.y+bot.h;
+    const elevated=d.y+(door.h||64)<feet-8;
+    const delta=center-(bot.x+bot.w/2);
+    return {direction:delta>4?1:delta< -4?-1:0,
+      near:Math.abs(delta)<130||delta< -4,
+      jump:elevated&&Math.abs(delta)<100&&Math.abs(delta)>12,
+      targetX:center};
+  }
+  function qualificationStatus(bots,nextCap,playerQualified=false){
+    const active=bots.filter(b=>b.alive&&b.lives>0);
+    const passed=active.filter(b=>b.qualified);
+    const required=Math.min(Math.max(0,nextCap),active.length);
+    return {required,passed:passed.length,
+      complete:required>0?passed.length>=required:!!playerQualified};
+  }
   function planLoot(solids,amount,traps=[]){
     const floors=solids.filter(s=>s.w>=25&&s.y>=80&&s.y<=480&&s.h>3&&
       s.x<950&&s.x+s.w>25);
@@ -136,12 +155,30 @@
     const run={active:false,phaseIndex:0,botCaps:config.botCaps,
       lootCaps:config.lootCaps,initialBots:config.initialBots,
       survivors:[],eliminated:new Set(),race:null,lootTotal:0,collected:0,
-      finished:false,lastStageIndex:null,
+      finished:false,lastStageIndex:null,playerQualified:false,
+      nextCap(){return countAt(this.botCaps,this.phaseIndex+1);},
+      qualification(){return qualificationStatus(this.race?.rivals||[],this.nextCap(),this.playerQualified);},
+      botAtDoor(bot){
+        if(!this.active||this.finished||bot.qualified||!bot.alive||
+          bot.respawnTimer>0||!game.level?.door?.playerWins(bot))return false;
+        bot.qualified=true;bot.vx=0;bot.vy=0;
+        this.renderHud();this.tryAdvance();return true;
+      },
+      tryAdvance(){
+        if(!this.active||this.finished||game.state!=='play')return false;
+        const status=this.qualification();
+        if(!status.complete)return false;
+        if(this.nextCap()<=1||this.phaseIndex>=10){
+          this.finish();return true;
+        }
+        baseWin.call(game);return true;
+      },
       cap(){return countAt(this.botCaps,this.phaseIndex);},
       renderHud(){
         if(counter&&!counter.classList.contains('hidden'))
-          counter.textContent='FASE '+(this.phaseIndex+1)+' · BOTS '+
-            this.race?.rivals.filter(b=>b.alive).length+'/'+this.cap()+
+          counter.textContent='FASE '+(this.phaseIndex+1)+' · CLASSIFICADOS '+
+            this.qualification().passed+'/'+this.qualification().required+
+            ' · BOTS '+(this.race?.rivals.filter(b=>b.alive).length||0)+
             ' · LOOT '+this.collected+'/'+this.lootTotal;
       },
       syncLobby(participants){
@@ -158,7 +195,7 @@
             // A viewer may replace a system NPC even if the old lobby NPC
             // was not one of the survivors in this particular stage.
             if(person.origin!=='viewer')continue;
-            const replace=bots.findIndex(bot=>bot.origin==='system');
+            const replace=bots.findIndex(bot=>bot.origin==='system'&&!bot.qualified);
             if(replace<0)continue;
             ids.delete(bots[replace].participantId);
             this.eliminated.add(bots[replace].participantId);
@@ -175,7 +212,7 @@
             w:26,h:32,vy:0,vx:0,grounded:false,face:1,squash:0,jumping:false,
             coyote:0,jumpHold:0,lives:1,alive:true,respawnTimer:0,
             protectedUntil:0,jumps:0,deadCount:0,safeX:base.x,lastY:base.y,
-            phase:(ai.seed%6283)/1000,stuckFor:0};
+            phase:(ai.seed%6283)/1000,stuckFor:0,qualified:false};
           bots.push(bot);ids.add(person.id);
         }
         this.renderHud();
@@ -184,10 +221,10 @@
         this.finished=true;this.active=false;
         game.state='tournamentFinished';
         scoreboard?.classList.remove('hidden');
-        const all=(this.race?.rivals||[]).filter(b=>b.alive)
+        const finalists=(this.race?.rivals||[]).filter(b=>b.alive&&b.qualified)
           .sort((a,b)=>b.x-a.x);
-        const leading=all[0];
-        const winner=game.hearts>0&&(!leading||game.player.x>=leading.x)
+        const leading=finalists[0];
+        const winner=this.playerQualified&&(!leading||game.player.x>=leading.x)
           ?'Protagonista':(leading?.name||'Protagonista');
         const caption=ui('tournament-winner');
         if(caption)caption.textContent='🏆 '+winner+' venceu o torneio!';
@@ -201,13 +238,14 @@
       const firstLoad=run.lastStageIndex===null;
       run.firstLoad=firstLoad;
       if(active&&!firstLoad&&run.lastStageIndex===index)
-        run.survivors=(run.race?.rivals||run.survivors).filter(b=>b.alive);
+        run.survivors=(run.race?.rivals||run.survivors).filter(b=>b.alive&&b.qualified);
       if(active&&run.lastStageIndex!==null&&run.lastStageIndex!==index){
         const cap=countAt(run.botCaps,run.phaseIndex+1);
-        const selected=selectSurvivors(run.race?.rivals||[],cap);
+        const selected=selectSurvivors((run.race?.rivals||[]).filter(b=>b.qualified),cap);
         for(const bot of run.race?.rivals||[])
           if(!selected.includes(bot))run.eliminated.add(bot.participantId);
         run.survivors=selected;run.phaseIndex++;
+        run.playerQualified=false;
       }
       const result=baseLoad.call(this,index);
       if(!active)return result;
@@ -221,7 +259,8 @@
       const race=new this.CompetitionTraining('tournament');
       race.rivals=run.survivors.map((bot,i)=>({...bot,x:this.level.spawn.x-i*.65,
         y:this.level.spawn.y,vx:0,vy:0,grounded:false,
-        w:26,h:32,morph:null,respawnTimer:0,protectedUntil:0,jumping:false}));
+        w:26,h:32,morph:null,respawnTimer:0,protectedUntil:0,jumping:false,
+        qualified:false,stuckFor:0}));
       run.race=race;this.level.traps.push(race);
       if(firstLoad)
         run.syncLobby(globalThis.MotocaLive?.lobby?.participants||[]);
@@ -251,24 +290,52 @@
     };
     const baseWin=game.winLevel;
     game.winLevel=function(){
+      if(run.finished)return;
       if(!run.active)return baseWin.call(this);
-      const cap=countAt(run.botCaps,run.phaseIndex+1);
-      const survivors=selectSurvivors(run.race?.rivals||[],cap);
-      if(cap<=1||run.phaseIndex>=10||(!survivors.length&&run.phaseIndex>0)){
-        run.race.rivals=survivors;
-        run.finish();return;
-      }
-      return baseWin.call(this);
+      run.playerQualified=true;
+      return run.tryAdvance();
     };
     const originalDie=game.die;
     game.die=function(x,y){
-      if(!run.active)return originalDie.call(this,x,y);
-      if(this.actorPower?.(this.player,'shield'))return;
-      this.hearts=Math.max(0,(this.hearts||10)-1);
-      if(!this.hearts){
-        this.state='tournamentFinished';run.finish();return;
-      }
+      if(run.active&&this.time<(this.invulnerableUntil||0))return;
       return originalDie.call(this,x,y);
+    };
+    // A campaign death restarts the protagonist only. Bots, their progress,
+    // trap state and already collected loot remain in this running stage.
+    const originalUpdate=game.update;
+    game.update=function(dt){
+      if(run.active&&this.state==='tournamentRespawn'){
+        this.time+=dt;
+        const delay=this.tournamentRespawnTimer-dt;
+        this.state='play';
+        for(const trap of this.level.traps){
+          if(trap===run.race||trap.constructor?.name==='ZombieHorde')
+            trap.update(dt,this);
+          if(this.state!=='play')return;
+        }
+        this.state='tournamentRespawn';
+        this.tournamentRespawnTimer=delay;
+        if(delay<=0){
+          const oldPlayer=this.player;
+          this.clearActorPowers?.(oldPlayer);
+          this.spawnPlayer();
+          for(const key of ['liveColor','liveTeam','liveTeamLabel'])
+            if(oldPlayer?.[key]!==undefined)this.player[key]=oldPlayer[key];
+          this.morph=null;this.reverseUntil=0;this.reverseType=null;
+          this.gravityDir=1;this.invertControls=false;this.remoteLock=false;
+          this.deathT=0;this.invulnerableUntil=this.time+1.2;
+          this.state='play';
+        }
+        return;
+      }
+      const result=originalUpdate.call(this,dt);
+      if(run.active&&this.state==='dead'){
+        run.playerQualified=false;
+        this.player._tournamentRespawning=true;
+        this.state='tournamentRespawn';
+        this.tournamentRespawnTimer=.65;
+      }
+      return result;
     };
     const baseMenu=showMenu;
     showMenu=function(){
@@ -310,6 +377,7 @@
       run.botCaps=config.botCaps;run.lootCaps=config.lootCaps;
       run.initialBots=config.initialBots;run.lastStageIndex=null;
       run.survivors=[];run.eliminated.clear();run.race=null;
+      run.playerQualified=false;
       const lobby=window.MotocaLive?.lobby;
       if(lobby){lobby.setSystemTarget(config.initialBots);lobby.ensureSystemBots();}
       settings?.classList.add('hidden');resultPanel?.classList.add('hidden');
@@ -324,7 +392,7 @@
     return run;
   }
   return {DEFAULT_BOTS,DEFAULT_LOOT,parseCounts,countAt,selectSurvivors,
-    planLoot,loadConfig,saveConfig,TournamentLoot,install};
+    doorSteering,qualificationStatus,planLoot,loadConfig,saveConfig,TournamentLoot,install};
 });
 if(typeof Game!=='undefined'&&typeof document!=='undefined'){
   FableTournament.install(Game);

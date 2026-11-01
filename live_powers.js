@@ -82,7 +82,7 @@
       game.drawPlayer=function(actor,color){
         const output=original.call(this,actor,color);
         const entries=this.actorPowers(actor||this.player);
-        if(entries.length&&typeof ctx!=='undefined'){
+        if(entries.length&&typeof ctx!=='undefined'&&!this.tournament?.active){
           const a=actor||this.player;
           ctx.save();ctx.strokeStyle=TYPES[entries[0].type].color;
           ctx.lineWidth=2;ctx.globalAlpha=.75;

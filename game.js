@@ -1125,10 +1125,12 @@ class Door {
   update(dt, g) {
     this.poofT = Math.max(0, this.poofT - dt);
     if (this.i < this.positions.length - 1) {
-      const p = g.player;
-      const dx = (p.x + p.w / 2) - (this.pos.x + this.w / 2);
-      const dy = (p.y + p.h / 2) - (this.pos.y + this.h / 2);
-      if (Math.hypot(dx, dy) < this.fleeDist) {
+      const actors = g.tournament?.active ? g.liveActors() : [g.player];
+      if (actors.some((p) => {
+        const dx = (p.x + p.w / 2) - (this.pos.x + this.w / 2);
+        const dy = (p.y + p.h / 2) - (this.pos.y + this.h / 2);
+        return Math.hypot(dx, dy) < this.fleeDist;
+      })) {
         spawnPoof(this.pos.x + this.w / 2, this.pos.y + this.h / 2);
         this.i++;
         this.poofT = 0.25;
@@ -1831,13 +1833,13 @@ const Game = {
   },
 
   liveActors() {
-    const actors = this.player ? [this.player] : [];
+    const actors = this.player && !this.player._tournamentRespawning ? [this.player] : [];
     if ((this.arcadeMode !== "endless"&&!this.tournament?.active)||!this.level)
       return actors;
     const race = this.level.traps.find((trap) =>
       trap.constructor?.name === "CompetitionTraining");
     for (const bot of race?.rivals || []) {
-      if (bot.alive && !(bot.respawnTimer > 0)) actors.push(bot);
+      if (bot.alive && !bot.qualified && !(bot.respawnTimer > 0)) actors.push(bot);
     }
     return actors;
   },
@@ -1850,7 +1852,10 @@ const Game = {
     this.darknessActive = false;
     this.remoteLock = false;
 
-    for (const t of this.level.traps) t.update(dt, this);
+    for (const t of this.level.traps) {
+      t.update(dt, this);
+      if (this.state !== "play") return;
+    }
     if (this.reverseUntil && this.time < this.reverseUntil) {
       if (this.reverseType === "gravity") this.gravityDir = -1;
       else this.invertControls = true;
