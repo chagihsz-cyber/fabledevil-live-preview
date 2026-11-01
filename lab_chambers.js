@@ -45,12 +45,12 @@
         new Note(395,300,"Portal ou desvio?"),
       ]
     })},
-    { name:"Sala de controles invertidos", build:()=>({
+    { name:"Sala de encolhimento", build:()=>({
       spawn:{x:55,y:440},door:new Door([{x:883,y:416}]),
       solids:[floorSeg(0,960),wallL(),wallR()],
-      traps:[new ChaosRoom(250,475,"mirror",{label:"TUDO AO CONTRÁRIO"}),
+      traps:[new MorphPad(250,"slim",{duration:10}),
         new Conveyor(R(390,480,190,60),{dir:-1,force:110}),
-        new Note(365,330,"Troque a direção para avançar"),
+        new Note(365,330,"Encolha e avance com os controles normais"),
       ]
     })},
     { name:"Gravidade invertida", build:()=>({
@@ -76,15 +76,15 @@
         new Note(430,259,"Suba, observe e caia do outro lado"),
       ]
     })},
-    { name:"Caos de mentirinha", build:()=>({
+    { name:"Gravidade e ilusões", build:()=>({
       spawn:{x:55,y:440},door:new Door([{x:888,y:416}]),
-      solids:[floorSeg(0,960),wallL(),wallR()],
-      traps:[new ChaosRoom(205,410,"mirror"),
+      solids:[floorSeg(0,960),R(190,123,465,18),wallL(),wallR()],
+      traps:[new ChaosRoom(205,410,"gravity",{y:95,h:385,label:"↑ GRAVIDADE INVERTIDA"}),
         new DarknessZone(385,400,{visibility:108}),
         new SawPlatform(385,422,90),
         new Saw([{x:580,y:365},{x:730,y:390}],{r:17,speed:120}),
         new DecoyDoor(736,416,"teleport",350),
-        new Note(360,300,"Uma saída real e várias ilusões"),
+        new Note(360,300,"Gravidade reversa, ilusões e saída real"),
       ]
     })}
   ];

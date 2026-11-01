@@ -99,9 +99,10 @@
         initialBots:Math.max(0,Math.min(20,Math.round(Number(stored.initialBots)||0))),
         zombies:['off','normal','hard'].includes(stored.zombies)?stored.zombies:'off',
         weapons:stored.weapons===true,powers:stored.powers===true,
-        mainBot:stored.mainBot===true};
+        mainBot:stored.mainBot===true,infiniteBotLives:stored.infiniteBotLives===true};
     }catch{return {version:1,botCaps:[...DEFAULT_BOTS],lootCaps:[...DEFAULT_LOOT],
-      initialBots:20,zombies:'off',weapons:false,powers:false,mainBot:false};}
+      initialBots:20,zombies:'off',weapons:false,powers:false,
+      mainBot:false,infiniteBotLives:false};}
   }
   function saveConfig(storage,config){
     const sanitized={version:1,botCaps:parseCounts(config.botCaps,DEFAULT_BOTS),
@@ -109,7 +110,7 @@
       initialBots:Math.min(20,Math.max(0,Math.floor(Number(config.initialBots)||0))),
       zombies:['off','normal','hard'].includes(config.zombies)?config.zombies:'off',
       weapons:config.weapons===true,powers:config.powers===true,
-      mainBot:config.mainBot===true};
+      mainBot:config.mainBot===true,infiniteBotLives:config.infiniteBotLives===true};
     try{storage?.setItem?.(STORAGE,JSON.stringify(sanitized));}catch{}
     return sanitized;
   }
@@ -160,7 +161,7 @@
     const run={active:false,phaseIndex:0,botCaps:config.botCaps,
       lootCaps:config.lootCaps,initialBots:config.initialBots,
       survivors:[],eliminated:new Set(),race:null,lootTotal:0,collected:0,
-      finished:false,lastStageIndex:null,playerQualified:false,
+      finished:false,lastStageIndex:null,playerQualified:false,infiniteBotLives:false,
       nextCap(){return countAt(this.botCaps,this.phaseIndex+1);},
       qualification(){return qualificationStatus(this.race?.rivals||[],this.nextCap(),this.playerQualified);},
       botAtDoor(bot){
@@ -216,7 +217,8 @@
             personalColor:appearance.color||'',team:appearance.team||'none',
             ai,trait:ai.trait,speed:265,x:base.x-ids.size*.65,y:base.y,
             w:26,h:32,vy:0,vx:0,grounded:false,face:1,squash:0,jumping:false,
-            coyote:0,jumpHold:0,lives:10,alive:true,respawnTimer:0,
+            coyote:0,jumpHold:0,lives:this.infiniteBotLives?Infinity:10,
+            alive:true,respawnTimer:0,
             protectedUntil:0,jumps:0,deadCount:0,safeX:base.x,lastY:base.y,
             phase:(ai.seed%6283)/1000,stuckFor:0,qualified:false};
           bots.push(bot);ids.add(person.id);
@@ -279,6 +281,7 @@
       this.endlessKind=config.zombies==='off'?'peace':'zombies';
       this.zombieDifficulty=config.zombies==='hard'?'hard':'normal';
       this.liveWeaponsEnabled=config.weapons;
+      this.infiniteBotLivesEnabled=run.infiniteBotLives;
       this.liveAutoFire=true;
       this.hearts=Math.min(10,Math.max(0,this.hearts||10));
       const race=new this.CompetitionTraining('tournament');
@@ -378,6 +381,7 @@
       ui('phase-weapons').checked=config.weapons;
       ui('phase-powers').checked=config.powers;
       ui('phase-main-bot').checked=config.mainBot;
+      ui('phase-infinite-bot-lives').checked=config.infiniteBotLives;
       menuEl.classList.add('hidden');settings?.classList.remove('hidden');
       game.state='tournamentSetup';
     };
@@ -408,11 +412,13 @@
         lootCaps:parseCounts(ui('phase-loot-caps').value,DEFAULT_LOOT,30),
         initialBots:ui('phase-initial-bots').value,zombies:ui('phase-zombies').value,
         weapons:ui('phase-weapons').checked,powers:ui('phase-powers').checked,
-        mainBot:ui('phase-main-bot').checked
+        mainBot:ui('phase-main-bot').checked,
+        infiniteBotLives:ui('phase-infinite-bot-lives').checked
       });
       run.active=true;run.finished=false;run.phaseIndex=0;
       run.botCaps=config.botCaps;run.lootCaps=config.lootCaps;
       run.initialBots=config.initialBots;run.lastStageIndex=null;
+      run.infiniteBotLives=config.infiniteBotLives;
       run.survivors=[];run.eliminated.clear();run.race=null;
       run.playerQualified=false;
       const lobby=window.MotocaLive?.lobby;

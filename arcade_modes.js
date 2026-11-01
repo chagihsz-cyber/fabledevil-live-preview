@@ -70,12 +70,13 @@
             R(250+offset,240,45,240),{shakeTime:.13}));
           traps.push(new PopSpikes(660,480,62,null,{period:1.9,phase:.75,holdOut:.7}));
         } else if (variant === 8) {
-          // The signs mean exactly what they say: left and right are reversed.
-          solids.push(floorSeg(0,960));
-          traps.push(new ChaosRoom(235,500,"mirror",{label:"ESQUERDA = DIREITA"}));
+          // Gravity zone with a real, reachable ceiling; controls stay normal.
+          solids.push(floorSeg(0,960),R(210,115,550,19));
+          traps.push(new ChaosRoom(235,500,"gravity",{y:95,h:385,
+            label:"↑ DESAFIO DE GRAVIDADE"}));
           traps.push(new PopSpikes(570,480,45,
             R(525,335,20,145),{delay:.18}));
-          traps.push(new Note(470,290,"seus dedos estão mentindo"));
+          traps.push(new Note(470,240,"o teto virou o chão"));
         } else if (variant === 9) {
           // Reverse gravity with a reachable roof and an unmistakable cue.
           solids.push(floorSeg(0,960),R(175,115,580,19));
@@ -130,9 +131,9 @@
           traps.push(new PopSpikes(500,480,58,null,{period:2,phase:.4,holdOut:.7}));
           traps.push(new Note(485,320,"um portal muda tudo"));
         } else {
-          // Chaos room flips both gravity and controls at once.
+          // High-gravity reversal challenge, without reversed movement keys.
           solids.push(floorSeg(0,960),R(218,110,535,20));
-          traps.push(new ChaosRoom(230,510,"chaos",{y:90,h:390,label:"MUNDO AO CONTRÁRIO"}));
+          traps.push(new ChaosRoom(230,510,"gravity",{y:90,h:390,label:"↑ TETO MAGNÉTICO"}));
           traps.push(new Teleporter(360,416,705,416,{twoWay:false}));
           traps.push(new Note(465,208,"nada aqui está na ordem certa"));
         }
@@ -240,13 +241,14 @@
   // No procedural wall may exceed 76 px without a special escape route.
   // Puzzles shuffle once per batch; avoid repeating the same pattern.
   const endlessBiomeNames=[
-    "respiro","espinhos","serra móvel","pulo","controles invertidos",
+    "respiro","espinhos","serra móvel","pulo","gravidade invertida",
     "chão que mente","empurre a caixa","túnel de encolher",
     "portal de queda","serras-plataforma","porta falsa",
     "escuridão e serra","buraco móvel","muro surpresa","escadaria","portal longo"
   ];
   function biomeFor(n) {
     if(n<3)return 0; // players have a safe opening each run
+    if(n>=4&&n%8===4)return 4; // recognizable gravity challenge every ~2880px
     const batch=Math.floor((n-3)/endlessBiomeNames.length);
     const index=(n-3)%endlessBiomeNames.length;
     const order=endlessBiomeNames.map((_,i)=>i);
@@ -272,7 +274,7 @@
       // During competitive races, everyone gets the SAME obstacle course.
       // Until the AI supports portals and morph buttons, choose from the
       // physical obstacle pool that ALL participants can negotiate.
-      const raceBiomes=[0,1,2,3,5,9,12,13,14];
+      const raceBiomes=[0,1,2,3,4,5,9,12,13,14];
       const chosen=biomeFor(n);
       const biome=this.endlessKind==="competition"
         ? raceBiomes[chosen%raceBiomes.length] : chosen;
@@ -297,8 +299,10 @@
         floor(0,182);floor(260,length); // 78 px gap; max jump 159
       }else if(biome===4){
         entireFloor();
-        add(new ChaosRoom(x+90,152,"mirror",{y:95,h:385,label:"AS SETAS MENTEM"}));
-        // Do not add a lethal trap at the room boundary: player needs time.
+        sectionSolids.push(R(x+75,120,248,18));
+        add(new ChaosRoom(x+80,232,"gravity",{y:95,h:385,
+          label:"↑ GRAVIDADE INVERTIDA"}));
+        // No inverted controls: climb onto the roof, then return to floor.
       }else if(biome===5){
         floor(0,184);floor(260,length);
         // Reveals a hidden 76 px gap when approached; jumping remains possible.

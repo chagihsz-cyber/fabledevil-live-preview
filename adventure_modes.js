@@ -65,7 +65,9 @@
  document.getElementById("shop-close").addEventListener("click",()=>{
    shop.classList.add("hidden");
  });
- document.getElementById("lives-menu").addEventListener("click",showMenu);
+ document.getElementById("lives-menu").addEventListener("click",()=>{
+   noLives.classList.add("hidden");showMenu();
+ });
  document.getElementById("lives-restart").addEventListener("click",()=>{
    noLives.classList.add("hidden");
    Game.hearts=MAX_LIVES;
@@ -276,6 +278,9 @@
    }
    loseLife(bot,g) {
      if(this.clock<bot.protectedUntil||g.actorPower?.(bot,'shield'))return;
+     const infinite=!!(g.tournament?.active&&g.tournament.infiniteBotLives)||
+       !!(g.arcadeMode==="endless"&&g.infiniteBotLivesEnabled);
+     if(infinite)bot.lives=Infinity;
      // Tournament bots share the protagonist's 10-life budget: a hit costs
      // exactly one life, never all remaining lives. Only the final hit
      // eliminates the bot and may make the next-stage quota impossible.
@@ -304,6 +309,8 @@
        if(!bot.alive||bot.qualified)continue;
        const ai=bot.ai||fallbackRivalIdentity(bot.participantId||bot.name,bot.name);
        bot.ai=ai;bot.trait=ai.trait;
+       if((g.tournament?.active&&g.tournament.infiniteBotLives)||
+         (g.arcadeMode==="endless"&&g.infiniteBotLivesEnabled))bot.lives=Infinity;
        if(bot.respawnTimer>0) {
          bot.respawnTimer=Math.max(0,bot.respawnTimer-dt);
          if(bot.respawnTimer===0) {
@@ -482,7 +489,7 @@
          const line=document.createElement("div");
          const b=positions[i];
          line.textContent=(i+1)+"º "+b.name+" · "+Math.max(0,Math.floor((b.x-55)/10))+
-           " m · ♥"+b.live+(b.alive?"":" ☠");
+           " m · ♥"+(b.live===Infinity?"∞":b.live)+(b.alive?"":" ☠");
          if(b.color)line.style.borderLeftColor=b.color;
          if(b.isPlayer)line.classList.add("racer-you");
          stand.appendChild(line);
@@ -519,7 +526,7 @@
        }
        ctx.globalAlpha=.85;ctx.fillStyle=theme.paper;
        ctx.font="10px "+FONT;ctx.fillText(
-         racerLabel(b)+" ♥"+b.lives,b.x-14,b.y-9);
+         racerLabel(b)+" ♥"+(b.lives===Infinity?"∞":b.lives),b.x-14,b.y-9);
        if(this.clock<(b.inversionDelayUntil||0)){
          ctx.fillStyle="#ffd88a";ctx.font="bold 8px "+FONT;
          ctx.fillText("AJUSTANDO",b.x-11,b.y-20);
@@ -539,7 +546,8 @@
    let lines=reason+"\nSua distância: "+(this.endlessScore||0)+" m";
    const race=this.level.traps.find(t=>t instanceof CompetitionTraining);
    if(race)lines+="\n"+race.rivals.map(b=>racerLabel(b)+": "+
-     Math.floor((b.x-55)/10)+" m"+(" ♥"+b.lives+(b.alive?"":" (eliminado)"))).join("\n");
+     Math.floor((b.x-55)/10)+" m"+(" ♥"+(b.lives===Infinity?"∞":b.lives)+
+       (b.alive?"":" (eliminado)"))).join("\n");
    document.getElementById("competition-score").textContent=lines;
    compResult.classList.remove("hidden");
  };

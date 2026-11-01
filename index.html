@@ -171,9 +171,10 @@
     aria-labelledby="campaign-settings-title">
     <h2 id="campaign-settings-title">🏆 CONFIGURAR FASES</h2>
     <p>Eliminatória: bots que morrem saem. Só avança quem entra na porta;
-    a fase termina quando a cota de classificados é atingida. Cada bot possui
-    10 vidas e volta ao início quando perde uma; só sai do torneio quando as
-    10 vidas acabam. Se você morrer, apenas seu personagem volta ao início.
+    a fase termina quando a cota de classificados é atingida. Por padrão,
+    cada bot possui 10 vidas e volta ao início quando perde uma. Também é possível
+    ativar vidas infinitas para os bots. Se você morrer, seu personagem retorna
+    sozinho ao início.
     A campanha clássica permanece separada.</p>
     <label for="phase-initial-bots">Bots na primeira fase (0–20)</label>
     <input id="phase-initial-bots" type="number" min="0" max="20" value="20">
@@ -191,6 +192,7 @@
     <label><input id="phase-weapons" type="checkbox"> Armas e loot de armas nas fases</label>
     <label><input id="phase-powers" type="checkbox"> Poderes e loot de poderes nas fases</label>
     <label><input id="phase-main-bot" type="checkbox"> Protagonista controlado por bot</label>
+    <label><input id="phase-infinite-bot-lives" type="checkbox"> ♾️ Vidas infinitas para os bots nesta partida</label>
     <div class="dialog-actions">
       <button id="phase-start" type="button">COMEÇAR TORNEIO</button>
       <button id="phase-classic" type="button">CAMPANHA CLÁSSICA</button>
@@ -226,6 +228,7 @@
     Sem arma, não atira. Armas e poderes temporários duram até 15 segundos.</p>
     <input id="endless-autofire" type="hidden" value="automatic">
     <label><input id="endless-main-bot" type="checkbox"> Personagem principal controlado por bot</label>
+    <label><input id="endless-infinite-bot-lives" type="checkbox"> ♾️ Vidas infinitas para os bots</label>
     <p>Armas ficam desligadas por padrão. Uma regra da LIVE ainda pode conceder arma temporária por até 15 s.</p>
     <div class="dialog-actions">
       <button id="endless-start" type="button">COMEÇAR</button>
@@ -349,16 +352,16 @@
 
 
 <script src="game.js?v=live-v9"></script>
-<script src="dynamic_traps.js?v=live-v9"></script>
-<script src="stage_mechanics.js?v=live-v7"></script>
-<script src="campaign_chapter2.js?v=arcade9"></script>
-<script src="arcade_modes.js?v=live-v7"></script>
-<script src="lab_chambers.js?v=arcade9"></script>
-<script src="adventure_modes.js?v=live-v10"></script>
+<script src="dynamic_traps.js?v=live-v11"></script>
+<script src="stage_mechanics.js?v=live-v11"></script>
+<script src="campaign_chapter2.js?v=live-v11"></script>
+<script src="arcade_modes.js?v=live-v11"></script>
+<script src="lab_chambers.js?v=live-v11"></script>
+<script src="adventure_modes.js?v=live-v11"></script>
 <script src="live_powers.js?v=live-v10"></script>
 <script src="live_rules.js?v=live-v7"></script>
-<script src="live_modes.js?v=live-v7"></script>
+<script src="live_modes.js?v=live-v11"></script>
 <script src="player_autopilot.js?v=live-v7"></script>
-<script src="campaign_tournament.js?v=live-v10"></script>
+<script src="campaign_tournament.js?v=live-v11"></script>
 </body>
 </html>

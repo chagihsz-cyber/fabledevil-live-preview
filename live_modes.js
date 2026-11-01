@@ -775,6 +775,7 @@
     Game.zombieDifficulty=zombie==="hard"?"hard":"normal";
     Game.liveWeaponsEnabled=!!byId("endless-weapons")?.checked;
     Game.liveAutoFire=true; // Any equipped character fires at a valid target.
+    Game.infiniteBotLivesEnabled=!!byId("endless-infinite-bot-lives")?.checked;
     if(variant==="standard")Game.requestedEndlessKind=zombie==="off"?"peace":"zombies";
     else{
       Game.requestedEndlessKind="competition";Game.competitionType=variant;

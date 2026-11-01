@@ -63,7 +63,7 @@ const CHAPTER_2_LEVELS = (() => {
  B("38 · NÃO CONFIE NO ESCURO",()=>{
    const q=shell();q.traps.push(new DarknessZone(280,535,{visibility:100}),
       new Saw([{x:465,y:440},{x:660,y:440}],{r:19,speed:155}),
-      new ReverseButton(240,"controls",3.6),
+      new MorphPad(240,"slim",{duration:6}),
       say(530,"No escuro, até o caminho te engana."),coin(830));
    return q;
  }),
@@ -115,10 +115,10 @@ const CHAPTER_2_LEVELS = (() => {
    return q;
  }),
  B("45 · VOLTAR É AVANÇAR",()=>{
-   const q=shell();q.traps.push(new ReverseButton(215,"controls",4.2),
+   const q=shell();q.traps.push(new MorphPad(215,"tall",{duration:6}),
       new Teleporter(440,416,700,416,{twoWay:false}),
       new PopSpikes(805,480,50,null,{period:2.2,holdOut:.5}),
-      say(450,"Você vai na direção contrária."),coin(855));
+      say(450,"O corpo muda, o portal permanece."),coin(855));
    return q;
  }),
  B("46 · QUATRO CAMINHOS, UMA SAÍDA",()=>{
@@ -136,11 +136,11 @@ const CHAPTER_2_LEVELS = (() => {
       say(460,"Primeiro o chão se move. Depois a saída mente."),coin(814));
    return q;
  }),
- B("48 · O BOTÃO MENTIROSO",()=>{
-   const q=shell();q.traps.push(new ReverseButton(235,"gravity",3.0),
-      new ChaosRoom(460,220,"mirror",{label:"NÃO CONFIE NAS SETAS"}),
+ B("48 · O BOTÃO DE GRAVIDADE",()=>{
+   const q=shell();q.solids.push(R(430,112,280,18));q.traps.push(new ReverseButton(235,"gravity",3.0),
+      new ChaosRoom(460,220,"gravity",{y:95,h:385,label:"↑ GRAVIDADE INVERTIDA"}),
       new Saw([{x:695,y:388},{x:775,y:388}],{r:19,speed:135}),
-      say(465,"Apertar também pode atrapalhar."),coin(860));
+      say(465,"Aperte e caminhe pelo teto."),coin(860));
    return q;
  }),
  B("49 · BREU E LÂMINAS",()=>{
@@ -190,7 +190,7 @@ const CHAPTER_2_LEVELS = (() => {
    q.traps.push(new DarknessZone(315,495,{visibility:110}),
       new DecoyDoor(640,416,"teleport",65),
       new DecoyDoor(840,416,"kill"),
-      new ReverseButton(205,"controls",3.4),
+      new MorphPad(205,"slim",{duration:6}),
       new Saw([{x:475,y:340},{x:520,y:403}],{r:18,speed:145}),
       new Note(420,305,"Fim? Você já sabe desconfiar."),coin(185));
    return q;
