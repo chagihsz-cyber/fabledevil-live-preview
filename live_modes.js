@@ -148,10 +148,26 @@
       distance:Math.abs(candidates[0].x-origin)};
   }
   class WeaponState {
-    constructor(){this.type=null;this.ammo=0;this.lastShot=-Infinity;this.lastGift=-Infinity;}
+    constructor(){this.type=null;this.ammo=0;this.lastShot=-Infinity;this.lastGift=-Infinity;
+      this.expiresAt=-Infinity;this.temporary=false;}
     equip(type){
       const spec=WEAPONS[type];if(!spec)return false;
-      this.type=type;this.ammo=spec.ammo;this.lastShot=-Infinity;return true;
+      this.type=type;this.ammo=spec.ammo;this.lastShot=-Infinity;
+      this.expiresAt=Infinity;this.temporary=false;return true;
+    }
+    grantTemporary(type,now,duration=15){
+      const spec=WEAPONS[type];if(!spec||!Number.isFinite(now))return false;
+      this.type=type;this.ammo=spec.ammo;this.lastShot=-Infinity;
+      this.expiresAt=now+Math.min(15,Math.max(0,duration));this.temporary=true;return true;
+    }
+    remaining(now){
+      if(!this.type)return 0;
+      return this.temporary?Math.min(15,Math.max(0,this.expiresAt-now)):Infinity;
+    }
+    clear(){this.type=null;this.ammo=0;this.expiresAt=-Infinity;this.temporary=false;}
+    tick(now){
+      if(this.temporary&&now>=this.expiresAt)this.clear();
+      return !!this.type;
     }
     shoot(now){
       const spec=WEAPONS[this.type];
@@ -178,6 +194,8 @@
   const {LIVE_LIMITS,LiveLobby,chooseBehindSpawn,chooseRiskPortalLanding,
     sanitizeName,parseParticipation,resolveGiftEffect,LiveEventGate,
     WeaponState,WEAPONS}=MotocaLiveCore;
+  const {ProfileStore,RuleEngine,EFFECTS,normalizeProfile,exportProfiles,importProfiles,
+    cleanText}=MotocaLiveRules;
   const lobby=new LiveLobby();
   const byId=id=>document.getElementById(id);
   const rosterEl=byId("live-roster"),countEl=byId("live-roster-count");
@@ -189,6 +207,9 @@
   let simulatedSequence=0,bridge=null,effectSequence=0;
   const eventGate=new LiveEventGate(),pendingEffects=[];
   const lastJoinByViewer=new Map();
+  const profileStore=new ProfileStore(localStorage);
+  let ttsSessionEnabled=false,lastSpokenAt=-Infinity;
+  const eventHistory=[];
   const clockMs=()=>Math.floor((typeof performance!=="undefined"?performance.now():Date.now()));
   const colorFor=index=>index<palette.length?palette[index]:
     `hsl(${Math.round((index*137.508)%360)} 62% ${58+(index%3)*6}%)`;
@@ -227,6 +248,215 @@
   liveToggle?.addEventListener("click",()=>
     setPanel(livePanel?.classList.contains("hidden")));
   byId("live-panel-close")?.addEventListener("click",()=>setPanel(false));
+
+  const effectLabels={bot:"Criar bot",life:"+1 vida",portal:"Portal surpresa",
+    obstacle:"Obstáculo",horde:"Horda",weapon:"Arma temporária",
+    power:"Lentidão não letal",voice:"Mensagem de voz"};
+  function eventDescription(event){
+    if(event.type==="gift")return "presente "+(event.giftName||event.giftId)+" de "+event.user;
+    if(event.type==="like")return event.count+" curtidas de "+event.user;
+    if(event.type==="chat")return "comentário de "+event.user+": "+event.comment;
+    return ({follow:"novo seguidor",share:"compartilhamento",subscribe:"nova inscrição"}[event.type]||event.type)+
+      " de "+event.user;
+  }
+  function speakEvent(event){
+    const profile=profileStore.active();
+    if(!profile.tts.enabled||!ttsSessionEnabled||
+       typeof speechSynthesis==="undefined"||typeof SpeechSynthesisUtterance==="undefined")return false;
+    const now=clockMs()/1000;
+    if(now-lastSpokenAt<2)return false;
+    const text=cleanText(eventDescription(event),120);if(!text)return false;
+    const utterance=new SpeechSynthesisUtterance(text);
+    utterance.rate=profile.tts.rate||1;
+    const preferred=profile.tts.voice;
+    if(preferred){
+      const voice=speechSynthesis.getVoices?.().find(item=>item.name===preferred||item.lang===preferred);
+      if(voice)utterance.voice=voice;
+    }
+    speechSynthesis.speak(utterance);lastSpokenAt=now;return true;
+  }
+  function applyRuleEffect(effect,event){
+    if(effect==="bot"){
+      const parsed=event.type==="chat"?parseParticipation(event.comment,event.user):null;
+      return !!addViewer(parsed?.name||event.user,clockMs(),parsed?.viewer||event.user);
+    }
+    if(effect==="voice")return speakEvent(event);
+    return triggerEffect(effect,clockMs()/1000,event.source,event);
+  }
+  const ruleEngine=new RuleEngine({profile:profileStore.active(),apply:applyRuleEffect});
+  function renderHistory(){
+    const list=byId("live-event-history");if(!list)return;
+    list.replaceChildren();
+    for(const entry of eventHistory){
+      const item=document.createElement("li"),source=document.createElement("span"),
+        status=document.createElement("span"),message=document.createElement("span");
+      source.className="history-source";source.textContent=String(entry.source||"unknown").toUpperCase();
+      status.className=entry.status==="applied"?"history-applied":"history-status";
+      status.textContent=entry.status.toUpperCase();message.textContent=entry.message;
+      item.append(source,status,message);list.appendChild(item);
+    }
+  }
+  function recordResult(result){
+    const event=result.event||{};
+    const applied=result.effects?.filter(item=>item.applied).map(item=>effectLabels[item.effect]).join(", ");
+    const message=(applied?applied+". ":"")+(result.reason||eventDescription(event));
+    eventHistory.unshift({source:event.source||"internal",status:result.status,message:cleanText(message,160)});
+    eventHistory.splice(30);renderHistory();
+    feedback(result.status==="applied"?"Aplicado: "+(applied||"regra concluída"):
+      (result.status==="partial"?"Aplicação parcial: "+message:message));
+    return result;
+  }
+  function processEvent(event){return recordResult(ruleEngine.process(event,clockMs()/1000));}
+  function simulatedEvent(rule){
+    const base={user:"simulador",source:"simulation"};
+    if(rule.event==="chat-hash")return {...base,type:"chat",comment:"#Bot teste"};
+    if(rule.event==="chat-common")return {...base,type:"chat",comment:"Olá, LIVE!"};
+    if(rule.event==="like")return {...base,type:"like",count:rule.likeGoal||1};
+    if(rule.event==="gift")return {...base,type:"gift",giftName:rule.giftName,giftId:rule.giftId};
+    if(rule.event==="gift-generic")return {...base,type:"gift",giftName:"Presente sem regra",giftId:"unknown"};
+    return {...base,type:rule.event};
+  }
+  function saveRule(ruleId,change){
+    const profile=profileStore.active(),rules=profile.rules.map(rule=>
+      rule.id===ruleId?{...rule,...change}:rule);
+    const saved=profileStore.update(profile.id,{rules});
+    ruleEngine.setProfile(saved);renderActiveProfile();return saved;
+  }
+  function renderActiveProfile(){
+    const profile=profileStore.active(),label=byId("live-active-profile");
+    if(label)label.textContent="Perfil: "+profile.name;
+  }
+  function renderRuleEditor(){
+    const profile=profileStore.active(),list=byId("live-rule-list");if(!list)return;
+    list.replaceChildren();
+    for(const rule of profile.rules){
+      const row=document.createElement("div");row.className="live-rule";
+      const title=document.createElement("div");title.className="live-rule-title";
+      const enabledLabel=document.createElement("label");enabledLabel.className="live-rule-enabled";
+      const enabled=document.createElement("input");enabled.type="checkbox";enabled.checked=rule.enabled;
+      const strong=document.createElement("strong");strong.textContent=rule.label;
+      enabledLabel.append(enabled,strong);title.appendChild(enabledLabel);
+      const detail=document.createElement("small");
+      detail.textContent=rule.event==="gift"?
+        "Nome: "+(rule.giftName||"—")+(rule.giftId?" · ID: "+rule.giftId:""):
+        (rule.event==="gift-generic"?"Usado quando nenhum presente exato combina":"Evento configurável");
+      title.appendChild(detail);
+      const effects=document.createElement("div");effects.className="live-rule-effects";
+      for(const effect of EFFECTS){
+        const label=document.createElement("label"),input=document.createElement("input");
+        input.type="checkbox";input.checked=rule.effects.includes(effect);
+        input.addEventListener("change",()=>{
+          const next=input.checked?[...rule.effects,effect]:rule.effects.filter(item=>item!==effect);
+          rule.effects=[...new Set(next)];saveRule(rule.id,{effects:rule.effects});
+        });
+        const text=document.createElement("span");text.textContent=effectLabels[effect];
+        label.append(input,text);effects.appendChild(label);
+      }
+      const number=document.createElement("div");number.className="live-rule-number";
+      const addNumber=(labelText,key,min,max)=>{
+        const label=document.createElement("label"),text=document.createElement("span"),
+          input=document.createElement("input");
+        text.textContent=labelText;input.type="number";input.min=String(min);input.max=String(max);
+        input.value=String(rule[key]);input.addEventListener("change",()=>
+          saveRule(rule.id,{[key]:Number(input.value)}));
+        label.append(text,input);number.appendChild(label);
+      };
+      if(rule.event==="like")addNumber("Meta","likeGoal",1,1000000);
+      addNumber("Cooldown (s)","cooldown",0,3600);
+      const actions=document.createElement("div");actions.className="live-rule-actions";
+      const test=document.createElement("button");test.type="button";test.className="live-rule-test";
+      test.textContent="TESTAR";test.addEventListener("click",()=>processEvent(simulatedEvent(rule)));
+      actions.appendChild(test);
+      const none=document.createElement("button");none.type="button";none.className="live-rule-none";
+      none.textContent="NENHUM EFEITO";none.addEventListener("click",()=>{
+        rule.effects=[];saveRule(rule.id,{effects:[]});renderRuleEditor();
+      });actions.appendChild(none);
+      if(rule.id.startsWith("gift-custom-")){
+        const remove=document.createElement("button");remove.type="button";remove.className="live-rule-remove";
+        remove.textContent="REMOVER";remove.addEventListener("click",()=>{
+          saveRule(rule.id,{});const current=profileStore.active();
+          profileStore.update(current.id,{rules:current.rules.filter(item=>item.id!==rule.id)});
+          ruleEngine.setProfile(profileStore.active());renderProfileEditor();
+        });actions.appendChild(remove);
+      }
+      enabled.addEventListener("change",()=>saveRule(rule.id,{enabled:enabled.checked}));
+      row.append(title,effects,number,actions);list.appendChild(row);
+    }
+  }
+  function populateVoices(){
+    const select=byId("live-tts-voice");if(!select||typeof speechSynthesis==="undefined")return;
+    const selected=profileStore.active().tts.voice;select.replaceChildren();
+    const fallback=document.createElement("option");fallback.value="";fallback.textContent="Voz padrão do navegador";
+    select.appendChild(fallback);
+    for(const voice of speechSynthesis.getVoices?.()||[]){
+      const option=document.createElement("option");option.value=voice.name;
+      option.textContent=voice.name+" ("+voice.lang+")";option.selected=voice.name===selected;
+      select.appendChild(option);
+    }
+  }
+  function renderProfileEditor(){
+    const profile=profileStore.active(),select=byId("live-profile-select");
+    if(select){select.replaceChildren();for(const item of profileStore.list()){
+      const option=document.createElement("option");option.value=item.id;option.textContent=item.name;
+      option.selected=item.id===profile.id;select.appendChild(option);
+    }}
+    const name=byId("live-profile-name");if(name)name.value=profile.name;
+    const tts=byId("live-tts-enabled");if(tts)tts.checked=profile.tts.enabled;
+    renderActiveProfile();renderRuleEditor();populateVoices();
+  }
+  byId("live-profile-select")?.addEventListener("change",event=>{
+    const profile=profileStore.select(event.currentTarget.value);if(profile){ruleEngine.setProfile(profile);renderProfileEditor();}
+  });
+  byId("live-profile-name")?.addEventListener("change",event=>{
+    const profile=profileStore.active();profileStore.update(profile.id,{name:event.currentTarget.value});renderProfileEditor();
+  });
+  byId("live-profile-new")?.addEventListener("click",()=>{
+    const profile=profileStore.create("Nova LIVE");ruleEngine.setProfile(profile);renderProfileEditor();
+  });
+  byId("live-profile-duplicate")?.addEventListener("click",()=>{
+    const active=profileStore.active(),profile=profileStore.duplicate(active.id,active.name+" — cópia");
+    if(profile){ruleEngine.setProfile(profile);renderProfileEditor();}
+  });
+  byId("live-profile-delete")?.addEventListener("click",()=>{
+    const active=profileStore.active();
+    if(typeof confirm==="function"&&!confirm("Excluir o perfil “"+active.name+"”?"))return;
+    if(!profileStore.remove(active.id)){feedback("Mantenha pelo menos um perfil.");return;}
+    ruleEngine.setProfile(profileStore.active());renderProfileEditor();
+  });
+  byId("live-gift-form")?.addEventListener("submit",event=>{
+    event.preventDefault();const name=cleanText(byId("live-gift-name")?.value,40),
+      giftId=cleanText(byId("live-gift-id")?.value,40);
+    if(!name&&!giftId){feedback("Informe o nome ou ID exato do presente.");return;}
+    const profile=profileStore.active();
+    const rule={id:"gift-custom-"+Date.now().toString(36),event:"gift",
+      label:"Presente: "+(name||giftId),giftName:name,giftId,enabled:true,cooldown:0,effects:[]};
+    profileStore.update(profile.id,{rules:[...profile.rules,rule]});
+    ruleEngine.setProfile(profileStore.active());if(byId("live-gift-name"))byId("live-gift-name").value="";
+    if(byId("live-gift-id"))byId("live-gift-id").value="";renderProfileEditor();
+  });
+  byId("live-tts-enabled")?.addEventListener("change",event=>{
+    ttsSessionEnabled=event.currentTarget.checked;const profile=profileStore.active();
+    profileStore.update(profile.id,{tts:{...profile.tts,enabled:event.currentTarget.checked}});
+    feedback(ttsSessionEnabled?"TTS do navegador habilitado neste dispositivo.":"TTS do navegador desligado.");
+  });
+  byId("live-tts-voice")?.addEventListener("change",event=>{
+    const profile=profileStore.active();profileStore.update(profile.id,
+      {tts:{...profile.tts,voice:event.currentTarget.value}});
+  });
+  if(typeof speechSynthesis!=="undefined")speechSynthesis.addEventListener?.("voiceschanged",populateVoices);
+  byId("live-export")?.addEventListener("click",()=>{
+    const blob=new Blob([exportProfiles(profileStore.snapshot())],{type:"application/json"});
+    const link=document.createElement("a");link.href=URL.createObjectURL(blob);
+    link.download="fabledevil-live-perfis.json";link.click();setTimeout(()=>URL.revokeObjectURL(link.href),0);
+  });
+  byId("live-import-file")?.addEventListener("change",event=>{
+    const file=event.currentTarget.files?.[0];if(!file)return;
+    const reader=new FileReader();reader.onload=()=>{try{
+      profileStore.replace(importProfiles(String(reader.result||"")));ruleEngine.setProfile(profileStore.active());
+      renderProfileEditor();feedback("Perfis importados e validados.");
+    }catch(error){feedback(error.message||"Arquivo de perfis inválido.");}};reader.readAsText(file);
+  });
+  renderProfileEditor();renderHistory();
   function renderLobby(now=clockMs()) {
     const result=lobby.tick(now);
     if(result.added.length)feedback("Vagas completadas com bots do sistema.");
@@ -262,16 +492,26 @@
   const nameForm=byId("live-name-form"),nameInput=byId("live-name");
   if(nameForm)nameForm.addEventListener("submit",event=>{
     event.preventDefault();
-    if(addViewer(nameInput.value,clockMs(),"simulador")){nameInput.value="";nameInput.focus();}
+    const name=sanitizeName(nameInput.value);
+    if(name){processEvent({type:"chat",user:"simulador",comment:"#"+name,source:"simulation"});
+      nameInput.value="";nameInput.focus();}
   });
   byId("simulate-comment")?.addEventListener("click",()=>{
     simulatedSequence++;
     const name=nameInput?.value||("Espectador "+simulatedSequence);
-    handleBridgeEvent({type:"chat",user:"simulador-"+simulatedSequence,comment:"#"+name});
+    processEvent({type:"chat",user:"simulador-"+simulatedSequence,
+      comment:"#"+name,source:"simulation"});
     if(nameInput)nameInput.value="";
   });
-  byId("simulate-like")?.addEventListener("click",()=>
-    feedback("Curtida simulada recebida; curtidas não criam bots nem drops."));
+  byId("simulate-like")?.addEventListener("click",()=>{
+    const rule=profileStore.active().rules.find(item=>item.event==="like");
+    processEvent({type:"like",user:"simulador",count:rule?.likeGoal||1,source:"simulation"});
+  });
+  for(const [id,giftName] of Object.entries({"simulate-rose":"Rosa",
+    "simulate-portal":"Portal","simulate-obstacle":"Obstáculo",
+    "simulate-horde":"Horda","simulate-weapon":"Arma","simulate-power":"Poder"}))
+    byId(id)?.addEventListener("click",()=>processEvent({type:"gift",user:"simulador",
+      giftName,giftId:"legacy-"+giftName.toLocaleLowerCase("pt-BR"),source:"simulation"}));
   byId("competition-btn")?.addEventListener("click",()=>{
     if(!lobby.participants.length)lobby.lastViewerAt=clockMs();
     setPanel(true);
@@ -287,32 +527,11 @@
     if(!payload||typeof payload!=="object")return;
     if(payload.type==="status"){
       if(payload.state==="tiktok-connected")setStatus("connected","TIKTOK CONECTADO");
+      else if(payload.state==="tikfinity-connected")setStatus("connected","TIKFINITY CONECTADO");
       else if(payload.state==="local")setStatus("local","PONTE LOCAL");
       else setStatus("simulated","SIMULADO");
       feedback(sanitizeName(payload.message)||"Status da ponte atualizado.");
-    }else if(payload.type==="chat"){
-      const entry=parseParticipation(payload.comment,payload.user);
-      if(!entry)return;
-      const viewerKey=(sanitizeName(payload.user)||"anônimo").toLocaleLowerCase("pt-BR");
-      const now=clockMs();
-      if(now-(lastJoinByViewer.get(viewerKey)??-Infinity)<750){
-        feedback("Comentário repetido muito rápido; aguarde um instante.");return;
-      }
-      if(lastJoinByViewer.size>=256){
-        for(const [key,time] of lastJoinByViewer)
-          if(now-time>60000)lastJoinByViewer.delete(key);
-        if(lastJoinByViewer.size>=256)
-          lastJoinByViewer.delete(lastJoinByViewer.keys().next().value);
-      }
-      lastJoinByViewer.set(viewerKey,now);
-      addViewer(entry.name,now,entry.viewer);
-    }else if(payload.type==="like"){
-      feedback("Curtida recebida de "+(sanitizeName(payload.user)||"viewer")+".");
-    }else if(payload.type==="gift"){
-      const effect=resolveGiftEffect(payload);
-      if(effect)triggerEffect(effect,clockMs()/1000,"gift");
-      else feedback("Gift sem mapeamento foi ignorado com segurança.");
-    }
+    }else processEvent({...payload,source:payload.source||"unknown"});
   }
   byId("live-connect")?.addEventListener("click",()=>{
     if(typeof EventSource==="undefined"){
@@ -324,6 +543,32 @@
     bridge.onopen=()=>{setStatus("local","PONTE LOCAL");feedback("Ponte local conectada; TikTok ainda não confirmado.");};
     bridge.onmessage=event=>{try{handleBridgeEvent(JSON.parse(event.data));}catch{feedback("Evento inválido ignorado.");}};
     bridge.onerror=()=>{setStatus("simulated","SIMULADO · PONTE OFFLINE");feedback("Ponte local indisponível; usando simulador.");};
+  });
+
+  const endlessSettings=byId("endless-settings");
+  byId("endless-btn")?.addEventListener("click",event=>{
+    event.preventDefault();event.stopImmediatePropagation();
+    menuEl.classList.add("hidden");endlessSettings?.classList.remove("hidden");
+    Game.state="endlessSetup";
+  },true);
+  byId("endless-back")?.addEventListener("click",()=>{
+    endlessSettings?.classList.add("hidden");showMenu();
+  });
+  byId("challenge-btn")?.addEventListener("click",()=>endlessSettings?.classList.add("hidden"),true);
+  byId("endless-start")?.addEventListener("click",()=>{
+    const zombie=byId("endless-zombies-hard")?.checked?"hard":
+      (byId("endless-zombies-easy")?.checked?"easy":"off");
+    const variant=byId("endless-variant")?.value||"standard";
+    Game.zombieDifficulty=zombie==="hard"?"hard":"easy";
+    Game.liveWeaponsEnabled=!!byId("endless-weapons")?.checked;
+    Game.liveAutoFire=!!byId("endless-autofire")?.checked;
+    if(variant==="standard")Game.requestedEndlessKind=zombie==="off"?"peace":"zombies";
+    else{
+      Game.requestedEndlessKind="competition";Game.competitionType=variant;
+      Game.competitionWithZombies=zombie!=="off";
+    }
+    endlessSettings?.classList.add("hidden");Game.startEndless();
+    window.MotocaMainPlayer?.setBot(!!byId("endless-main-bot")?.checked);
   });
 
   const baseZombieSpawn=ZombieHorde.prototype.spawn;
@@ -511,9 +756,12 @@
       this.playerWeapon=new WeaponState();this.botWeapons=new Map();
       this.drops=[];this.projectiles=[];this.nextDropX=760;this.dropSequence=0;
       this.giftGate=new WeaponState();this.lastHud="";
+      this.regularEnabled=!!Game.liveWeaponsEnabled;
       const starter=Game.endlessKind==="peace"?"glue":"pistol";
-      this.playerWeapon.equip(starter);
-      this.addDrop(240,starter);this.addDrop(480);
+      if(this.regularEnabled){
+        this.playerWeapon.grantTemporary(starter,Game.time,15);
+        this.addDrop(240,starter);this.addDrop(480);
+      }
     }
     addDrop(x,type){
       if(this.drops.length>=7)return false;
@@ -541,10 +789,22 @@
       if(holder===Game.player)return this.playerWeapon;
       if(!this.botWeapons.has(holder)){
         const equipped=new WeaponState();
-        equipped.equip(Game.endlessKind==="peace"?"glue":"pistol");
+        if(this.regularEnabled)equipped.grantTemporary(
+          Game.endlessKind==="peace"?"glue":"pistol",Game.time,15);
         this.botWeapons.set(holder,equipped);
       }
       return this.botWeapons.get(holder);
+    }
+    grantTemporary(holder,type,now,duration=15){
+      if(!holder||!WEAPONS[type])return false;
+      return this.stateFor(holder).grantTemporary(type,now,duration);
+    }
+    grantTemporaryForEvent(event,type,now){
+      const race=Game.level?.traps.find(t=>t.constructor.name==="CompetitionTraining");
+      const key=sanitizeName(event?.user).toLocaleLowerCase("pt-BR");
+      const bot=(race?.rivals||[]).find(item=>
+        item.name.toLocaleLowerCase("pt-BR")===key||item.viewer?.toLocaleLowerCase("pt-BR")===key);
+      return this.grantTemporary(bot||Game.player,type,now,15);
     }
     nearestZombie(holder,g,automatic=false){
       let best=null,bestDistance=Infinity;
@@ -588,21 +848,29 @@
       const race=g.level.traps.find(t=>t.constructor.name==="CompetitionTraining");
       const holders=[g.player,...(race?.rivals||[]).filter(b=>b.alive&&b.respawnTimer<=0)];
       const lead=Math.max(...holders.map(h=>h.x));
-      // Regular pickups remain available independently of TikTok gifts.
-      this.drops=this.drops.filter(drop=>drop.x>=lead-1100);
-      while(lead+420>=this.nextDropX){
-        this.addDrop(this.nextDropX);
-        this.nextDropX+=440;
+      for(const holder of holders){
+        const state=this.stateFor(holder),wasTemporary=state.temporary,wasType=state.type;
+        state.tick(g.time);
+        if(holder===g.player&&wasTemporary&&wasType&&!state.type)
+          announceEvent("Arma temporária expirada; disparo interrompido.");
+      }
+      if(this.regularEnabled){
+        this.drops=this.drops.filter(drop=>drop.x>=lead-1100);
+        while(lead+420>=this.nextDropX){
+          this.addDrop(this.nextDropX);
+          this.nextDropX+=440;
+        }
       }
       for(let i=this.drops.length-1;i>=0;i--){
         const drop=this.drops[i];
         const holder=holders.find(h=>Math.abs((h.x+(h.w||24)/2)-drop.x)<28&&
           Math.abs((h.y+(h.h||32)/2)-drop.y)<45);
-        if(holder){this.stateFor(holder).equip(drop.type);this.drops.splice(i,1);}
+        if(holder){this.stateFor(holder).grantTemporary(drop.type,g.time,15);
+          this.drops.splice(i,1);}
       }
       if(fireRequested){this.fire(g.player,g,false);fireRequested=false;}
-      if(g.autoFireMain)this.fire(g.player,g,true);
-      for(const bot of holders.slice(1))this.fire(bot,g,true);
+      if(g.liveAutoFire&&g.autoFireMain)this.fire(g.player,g,true);
+      if(g.liveAutoFire)for(const bot of holders.slice(1))this.fire(bot,g,true);
       for(let i=this.projectiles.length-1;i>=0;i--){
         const bullet=this.projectiles[i];bullet.x+=bullet.vx*dt;bullet.y+=bullet.vy*dt;bullet.life-=dt;
         let hit=false;
@@ -629,7 +897,11 @@
     updateHud(){
       const hud=byId("live-weapon-hud"),state=this.playerWeapon;
       if(!hud)return;
-      const text=state.type?state.type.toUpperCase()+" · "+state.ammo:"SEM ARMA · PEGUE UM DROP";
+      const remaining=state.temporary?" · "+Math.ceil(state.remaining(Game.time))+" s":"";
+      const text=state.type?state.type.toUpperCase()+" · "+state.ammo+remaining:
+        (this.regularEnabled?"SEM ARMA · PEGUE UM DROP":"SEM ARMA");
+      hud.classList.toggle("hidden",!this.regularEnabled&&!state.type);
+      byId("tc-fire")?.classList.toggle("hidden",!this.regularEnabled&&!state.type);
       if(text!==this.lastHud){hud.textContent=text;this.lastHud=text;}
     }
     solids(){return []}kills(){return []}
@@ -657,6 +929,24 @@
       }
       ctx.restore();
     }
+  }
+
+  class LivePowerRuntime{
+    constructor(){this.expiresAt=-Infinity;this.duration=0;this.lastHud="";}
+    grant(now,duration=5){
+      if(!Number.isFinite(now))return false;
+      this.duration=Math.min(15,Math.max(0,duration));this.expiresAt=now+this.duration;
+      return this.duration>0;
+    }
+    remaining(now){return Math.min(15,Math.max(0,this.expiresAt-now));}
+    update(_dt,g){
+      const hud=byId("live-power-hud");if(!hud)return;
+      const remaining=this.remaining(g.time),active=remaining>0;
+      hud.classList.toggle("hidden",!active);
+      const text=active?"LENTIDÃO · "+Math.ceil(remaining)+" s":"LENTIDÃO";
+      if(text!==this.lastHud){hud.textContent=text;this.lastHud=text;}
+    }
+    solids(){return []}kills(){return []}draw(){}
   }
 
   function announceEvent(message){
@@ -706,7 +996,7 @@
     }
     return added;
   }
-  function applyLiveEffect(effect){
+  function applyLiveEffect(effect,event={}){
     if(Game.arcadeMode!=="endless"||Game.state!=="play")return false;
     const objects=Game.level.traps.filter(t=>t.isLiveObject&&t.ttl>0);
     if(["portal","obstacle"].includes(effect)&&
@@ -749,19 +1039,21 @@
     if(effect==="weapon"){
       const type=Game.endlessKind==="peace"?"glue":
         (effectSequence++%2?"burst":"laser");
-      const added=Game.liveWeapons?.addDrop(liveLeader()+135,type)||false;
-      if(added)announceEvent("Arma extra "+type.toUpperCase()+" liberada.");
+      const added=Game.liveWeapons?.grantTemporaryForEvent(event,type,Game.time)||false;
+      if(added)announceEvent("Arma temporária "+type.toUpperCase()+" liberada por 15 s.");
       return added;
     }
     if(effect==="power"){
       const race=liveRace();if(!race?.rivals.length)return false;
+      const duration=5;
       for(const bot of race.rivals)
-        bot.slowedUntil=Math.max(bot.slowedUntil||0,race.clock+2);
-      announceEvent("Poder de cola: rivais atrasados por 2 s, sem dano.");return true;
+        bot.slowedUntil=race.clock+duration;
+      Game.livePower?.grant(Game.time,duration);
+      announceEvent("Poder de lentidão: rivais atrasados por 5 s, sem dano.");return true;
     }
     return false;
   }
-  function triggerEffect(effect,now=clockMs()/1000,source="simulator"){
+  function triggerEffect(effect,now=clockMs()/1000,source="simulation",event={}){
     if(!["life","portal","obstacle","horde","weapon","power"].includes(effect))return false;
     if(!eventGate.allow(effect,now)){
       announceEvent("Evento "+effect+" bloqueado por cooldown.");return false;
@@ -770,40 +1062,36 @@
       if(pendingEffects.length>=8){
         announceEvent("Fila de eventos cheia; aguarde a próxima partida.");return false;
       }
-      pendingEffects.push(effect);
-      announceEvent((source==="gift"?"Gift":"Evento simulado")+
+      pendingEffects.push({effect,event});
+      announceEvent((source==="simulation"?"Evento simulado":"Evento da LIVE")+
         " agendado para a próxima partida infinita.");return true;
     }
-    const applied=applyLiveEffect(effect);
+    const applied=applyLiveEffect(effect,event);
     if(!applied&&effect!=="life")
       announceEvent("Evento "+effect+" não pôde ser aplicado com segurança agora.");
     return applied;
   }
 
-  for(const [id,effect] of Object.entries({
-    "simulate-rose":"life","simulate-portal":"portal",
-    "simulate-obstacle":"obstacle","simulate-horde":"horde",
-    "simulate-weapon":"weapon","simulate-power":"power",
-  }))byId(id)?.addEventListener("click",()=>triggerEffect(effect));
-
   Game.startEndless=function(){
     if((this.requestedEndlessKind||"peace")==="competition")lobby.ensureMinimum(clockMs());
-    this.liveWeaponsEnabled=true;
+    this.liveWeaponsEnabled=!!this.liveWeaponsEnabled;
+    this.liveAutoFire=!!this.liveAutoFire;
     const result=baseStartEndless.call(this);
     const race=syncLiveBots();
     const weaponHud=byId("live-weapon-hud"),fireButton=byId("tc-fire");
     weaponHud?.classList.toggle("hidden",!this.liveWeaponsEnabled);
     fireButton?.classList.toggle("hidden",!this.liveWeaponsEnabled);
-    if(this.liveWeaponsEnabled){
-      this.liveWeapons=new LiveWeaponRuntime();
-      this.level.traps.push(this.liveWeapons);
-      this.liveWeapons.updateHud();
-    }else this.liveWeapons=null;
-    while(pendingEffects.length)applyLiveEffect(pendingEffects.shift());
+    this.liveWeapons=new LiveWeaponRuntime();
+    this.livePower=new LivePowerRuntime();
+    this.level.traps.push(this.liveWeapons);
+    this.level.traps.push(this.livePower);
+    this.liveWeapons.updateHud();
+    while(pendingEffects.length){const pending=pendingEffects.shift();
+      applyLiveEffect(pending.effect,pending.event);}
     return result;
   };
   if(typeof setInterval==="function")setInterval(()=>renderLobby(),250);
   renderLobby(0);
-  window.MotocaLive={lobby,addViewer,renderLobby,handleBridgeEvent,triggerEffect,
-    simulated:true,realTikTokTested:false};
+  window.MotocaLive={lobby,addViewer,renderLobby,handleBridgeEvent,processEvent,
+    triggerEffect,profileStore,ruleEngine,simulated:true,realTikTokTested:false};
 })();

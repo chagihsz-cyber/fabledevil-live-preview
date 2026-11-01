@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=live-v2" />
+<link rel="stylesheet" href="style.css?v=live-v4" />
 </head>
 <body>
 <!-- TOP CONTROL BAR (always visible) -->
@@ -36,6 +36,7 @@
       <span id="arcade-hearts" class="hearts-indicator">♥ 10/10</span>
       <span id="arcade-wallet" class="coins-indicator">🪙 0</span>
       <span id="live-weapon-hud" class="hidden" aria-live="polite">SEM ARMA</span>
+      <span id="live-power-hud" class="hidden" aria-live="polite">LENTIDÃO</span>
       <span id="arcade-effect" class="hidden" aria-live="off">⚡</span>
       <span class="hint">R&nbsp;restart</span>
     </div>
@@ -60,13 +61,10 @@
       <h1 class="title"><span class="t-fable">FABLE</span><span class="t-devil">DEVIL</span></h1>
       <p class="subtitle">a clean little rage game. promise. <span class="wink">;)</span></p>
       <div class="arcade-modes">
-        <button id="play-btn" type="button">FASES · JOGAR</button>
-        <button id="endless-btn" type="button">♾ INFINITO PACÍFICO</button>
-        <button id="zombie-btn" type="button">🧟 INFINITO ZUMBIS — FÁCIL / DIFÍCIL</button>
-        <button id="competition-btn" type="button">🏁 COMPETIÇÃO (TESTE LOCAL)</button>
-        <button id="challenge-btn" type="button">⚙ TESTAR ARMADILHAS NOVAS</button>
+        <button id="play-btn" type="button">FASES</button>
+        <button id="endless-btn" type="button">INFINITO</button>
       </div>
-      <label class="main-player-option" for="main-player-bot"><input id="main-player-bot" type="checkbox"> 🤖 Personagem principal automático <small>(mesmo personagem)</small></label>
+      <label class="main-player-option hidden" for="main-player-bot"><input id="main-player-bot" type="checkbox"> Personagem principal automático <small>(mesmo personagem)</small></label>
       <p class="modes-info">54 fases: 24 aventuras novas depois da fase 30 · + desafios infinitos · dez vidas e moedas</p>
       <button type="button" id="shop-btn">🪙 LOJA DE VIDAS</button>
       <div class="grid-label">levels</div>
@@ -77,40 +75,112 @@
     </div>
   </div>
 
-  <aside id="live-panel" class="live-panel hidden" aria-label="Central LIVE simulada">
+  <aside id="live-panel" class="live-panel hidden" aria-label="Configuração da LIVE">
     <div class="live-panel-heading">
-      <div><strong>CENTRAL LIVE</strong><small>simulador local · não é uma LIVE real</small></div>
+      <div><strong>CONFIGURAÇÃO DA LIVE</strong><small>regras locais · não é uma LIVE real</small></div>
       <button id="live-panel-close" type="button" aria-label="Fechar central LIVE">×</button>
     </div>
     <div class="live-status-row">
       <strong id="live-status" class="live-status simulated">● SIMULADO</strong>
+      <span id="live-active-profile">Perfil: Live padrão</span>
       <span id="live-roster-count">0/20 participantes</span>
       <span id="live-countdown" role="timer">completa em 15 s</span>
     </div>
+    <section class="live-profile-tools" aria-labelledby="live-profile-title">
+      <h2 id="live-profile-title">Perfil ativo</h2>
+      <div class="live-profile-row">
+        <label for="live-profile-select">Perfil</label>
+        <select id="live-profile-select"></select>
+        <label for="live-profile-name">Nome</label>
+        <input id="live-profile-name" maxlength="40" autocomplete="off">
+      </div>
+      <div class="live-profile-actions">
+        <button id="live-profile-new" type="button">NOVO</button>
+        <button id="live-profile-duplicate" type="button">DUPLICAR</button>
+        <button id="live-profile-delete" type="button">EXCLUIR</button>
+        <button id="live-export" type="button">EXPORTAR JSON</button>
+        <label class="live-import" for="live-import-file">IMPORTAR JSON</label>
+        <input id="live-import-file" type="file" accept="application/json,.json">
+      </div>
+    </section>
+    <section class="live-rules" aria-labelledby="live-rules-title">
+      <div class="live-section-heading">
+        <h2 id="live-rules-title">Regras de evento</h2>
+        <span>salvas automaticamente</span>
+      </div>
+      <div id="live-rule-list"></div>
+      <form id="live-gift-form" class="live-gift-form">
+        <label for="live-gift-name">Novo presente por nome exato</label>
+        <input id="live-gift-name" maxlength="40" placeholder="Ex.: Coração">
+        <label for="live-gift-id">ID opcional</label>
+        <input id="live-gift-id" maxlength="40" placeholder="Ex.: 5655">
+        <button type="submit">ADICIONAR PRESENTE</button>
+      </form>
+    </section>
+    <section class="live-voice" aria-labelledby="live-voice-title">
+      <h2 id="live-voice-title">Voz local opcional</h2>
+      <label><input id="live-tts-enabled" type="checkbox"> Ativar TTS do navegador neste dispositivo</label>
+      <label for="live-tts-voice">Voz preferida</label>
+      <select id="live-tts-voice"><option value="">Voz padrão do navegador</option></select>
+      <p>TTS DO NAVEGADOR é separado das vozes configuradas no TikFinity/OBS.</p>
+    </section>
     <form id="live-name-form" class="live-name-form">
-      <label for="live-name">Bot por comentário</label>
+      <label for="live-name">Simular comentário #Nome</label>
       <input id="live-name" maxlength="20" autocomplete="off" placeholder="Ex.: Maria Silva" required>
       <button type="submit">SIMULAR #NOME</button>
     </form>
     <div class="live-simulator" aria-label="Simulador local de eventos suportados">
       <button id="simulate-comment" type="button">💬 #NOME <small>simulado</small></button>
       <button id="simulate-like" type="button">♥ CURTIDA <small>simulado</small></button>
-      <button id="simulate-rose" type="button">🌹 ROSA · +1 VIDA</button>
-      <button id="simulate-portal" type="button">? PORTAL <small>simulado</small></button>
-      <button id="simulate-obstacle" type="button">⚠ OBSTÁCULO <small>simulado</small></button>
-      <button id="simulate-horde" type="button">🧟 HORDA <small>simulado</small></button>
-      <button id="simulate-weapon" type="button">⌁ ARMA EXTRA <small>simulado</small></button>
-      <button id="simulate-power" type="button">◌ PODER COLA <small>simulado</small></button>
       <button id="live-connect" type="button">CONECTAR PONTE LOCAL</button>
     </div>
-    <p class="live-disclaimer">Somente ROSA está mapeada como presente nominal nesta configuração. Gifts desconhecidos não produzem efeito.</p>
+    <div class="legacy-live-controls hidden" aria-hidden="true">
+      <button id="simulate-rose" type="button">Testar Rosa</button>
+      <button id="simulate-portal" type="button">Testar portal</button>
+      <button id="simulate-obstacle" type="button">Testar obstáculo</button>
+      <button id="simulate-horde" type="button">Testar horda</button>
+      <button id="simulate-weapon" type="button">Testar arma</button>
+      <button id="simulate-power" type="button">Testar poder</button>
+    </div>
+    <p class="live-disclaimer">Cada botão TESTAR usa exatamente o mesmo pipeline dos eventos da ponte. Eventos bloqueados não são mostrados como sucesso.</p>
     <p id="live-feedback" class="live-feedback" aria-live="polite">Simulador pronto. Nenhuma rede externa será aberta.</p>
+    <section class="live-history" aria-labelledby="live-history-title">
+      <h2 id="live-history-title">Histórico</h2>
+      <ol id="live-event-history" aria-live="polite"></ol>
+    </section>
     <ol id="live-roster" class="live-roster" aria-label="Bots inscritos"></ol>
   </aside>
   <div id="live-event-toast" class="live-event-toast hidden" role="status" aria-live="polite"></div>
 
   <div id="race-standings" class="hidden" aria-label="Classificação da corrida"></div>
   <!-- Economy and competition are prototypes local to the browser. -->
+  <div id="endless-settings" class="arcade-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="endless-settings-title">
+    <h2 id="endless-settings-title">CONFIGURAR INFINITO</h2>
+    <fieldset>
+      <legend>Zumbis</legend>
+      <label><input id="endless-zombies-off" type="radio" name="endless-zombies" value="off" checked> Desligados</label>
+      <label><input id="endless-zombies-easy" type="radio" name="endless-zombies" value="easy"> Fácil</label>
+      <label><input id="endless-zombies-hard" type="radio" name="endless-zombies" value="hard"> Difícil</label>
+    </fieldset>
+    <label for="endless-variant">Formato</label>
+    <select id="endless-variant">
+      <option value="standard">Percurso infinito</option>
+      <option value="race">Corrida até 350 m</option>
+      <option value="last">Último sobrevivente</option>
+      <option value="distance">Maior distância em 60 s</option>
+    </select>
+    <label><input id="endless-weapons" type="checkbox"> Ativar armas e drops nesta partida</label>
+    <label><input id="endless-autofire" type="checkbox"> Permitir autoatirar quando houver arma</label>
+    <label><input id="endless-main-bot" type="checkbox"> Personagem principal controlado por bot</label>
+    <p>Armas ficam desligadas por padrão. Uma regra da LIVE ainda pode conceder arma temporária por até 15 s.</p>
+    <div class="dialog-actions">
+      <button id="endless-start" type="button">COMEÇAR</button>
+      <button id="endless-back" type="button">FECHAR</button>
+      <button id="challenge-btn" type="button">LABORATÓRIO DE ARMADILHAS</button>
+    </div>
+  </div>
+  <button id="zombie-btn" class="hidden" type="button" aria-hidden="true" tabindex="-1">ZUMBIS</button>
+  <button id="competition-btn" class="hidden" type="button" aria-hidden="true" tabindex="-1">COMPETIÇÃO</button>
   <div id="zombie-settings" class="arcade-dialog hidden" role="dialog" aria-label="Escolher dificuldade dos zumbis">
     <h2>🧟 SOBREVIVÊNCIA ZUMBI</h2>
     <p>Escolha a dificuldade. No fácil, eles perseguem mais devagar e aparecem menos.</p>
@@ -224,14 +294,15 @@
 
 
 
-<script src="game.js?v=live-v3"></script>
+<script src="game.js?v=live-v4"></script>
 <script src="dynamic_traps.js?v=arcade9"></script>
 <script src="stage_mechanics.js?v=arcade9"></script>
 <script src="campaign_chapter2.js?v=arcade9"></script>
 <script src="arcade_modes.js?v=arcade9"></script>
 <script src="lab_chambers.js?v=arcade9"></script>
-<script src="adventure_modes.js?v=live-v3"></script>
-<script src="live_modes.js?v=live-v3"></script>
-<script src="player_autopilot.js?v=live-v2"></script>
+<script src="adventure_modes.js?v=live-v4"></script>
+<script src="live_rules.js?v=live-v4"></script>
+<script src="live_modes.js?v=live-v4"></script>
+<script src="player_autopilot.js?v=live-v4"></script>
 </body>
 </html>

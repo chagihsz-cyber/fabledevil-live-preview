@@ -195,7 +195,9 @@
       touch.jump=!!d.jump;
       if(d.jumpNow)jumpBuffered=Math.max(jumpBuffered,.12);
       botOwnedInput=true;
-      this.autoFireMain=!!this.liveWeaponsEnabled;
+      // Auto-fire is an explicit mode choice. The weapon runtime still refuses
+      // every shot while unarmed, including LIVE runs with regular guns off.
+      this.autoFireMain=!!this.liveAutoFire;
     }else if(botOwnedInput)releaseBotInput();
     return oldPlay.call(this,dt);
   };

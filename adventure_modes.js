@@ -106,9 +106,11 @@
    } else if(this.endlessKind==="competition") {
      const type=this.competitionType||"race";
      this.level.traps.push(new CompetitionTraining(type));
-     if(this.competitionWithZombies)
+     if(this.competitionWithZombies){
+       const hard=this.zombieDifficulty==="hard";
        this.level.traps.push(new ZombieHorde({
-         speed:152,spawnEvery:5.0,maxZombies:3}));
+         speed:hard?214:152,spawnEvery:hard?1.1:5.0,maxZombies:hard?14:3}));
+     }
      document.getElementById("hud-levelname").textContent="COMPETIÇÃO · BOTS";
    }
    updateHud();
@@ -309,12 +311,24 @@
          edgeDistance>-18&&gap>15;
        const shouldJump=bot.grounded&&(needsGapJump||wallAhead||danger||
          (riskPortal&&!takesPortal));
+       const inversionRoom=g.level.traps.find(t=>t.constructor?.name==="ChaosRoom"&&
+         (t.type==="mirror"||t.type==="chaos")&&
+         bot.x+bot.w/2>t.x&&bot.x+bot.w/2<t.x+t.width&&
+         bot.y+bot.h>t.y&&bot.y<t.y+t.h);
+       if(inversionRoom&&bot.inversionRoom!==inversionRoom){
+         bot.inversionRoom=inversionRoom;
+         const reaction=.3+Math.abs(Math.sin(bot.phase+inversionRoom.x*.01))*.35;
+         bot.inversionDelayUntil=this.clock+reaction;
+         bot.inversionWrongWay=false;
+       }else if(!inversionRoom)bot.inversionRoom=null;
+       const inversionReacting=!!inversionRoom&&this.clock<(bot.inversionDelayUntil||0);
+       if(inversionReacting)bot.inversionWrongWay=true;
        // Match the original protagonist's 265 px/s speed, 2600/1800
        // ground/air acceleration, -645 jump, 2150 gravity and 980 fall cap.
        // The AI decides WHEN to jump, never receives extra movement power.
        const oldX=bot.x,oldY=bot.y;
        const slowFactor=this.clock<(bot.slowedUntil||0)?.46:1;
-       const target=265*slowFactor;
+       const target=(inversionReacting?-70:265)*slowFactor;
        const acceleration=bot.grounded?2600:1800;
        if(target>bot.vx)bot.vx=Math.min(target,bot.vx+acceleration*dt);
        else if(target<bot.vx)bot.vx=Math.max(target,bot.vx-acceleration*dt);
@@ -417,6 +431,10 @@
        ctx.globalAlpha=.85;ctx.fillStyle=theme.paper;
        ctx.font="10px "+FONT;ctx.fillText(
          b.name+" ♥"+b.lives,b.x-14,b.y-9);
+       if(this.clock<(b.inversionDelayUntil||0)){
+         ctx.fillStyle="#ffd88a";ctx.font="bold 8px "+FONT;
+         ctx.fillText("AJUSTANDO",b.x-11,b.y-20);
+       }
      }
      ctx.restore();
    }
