@@ -87,6 +87,13 @@
           decision.pushCrate=true;
         }
       }else this.crateRecovery=null;
+      const puzzlePlan=globalThis.FablePuzzleNavigation?.plan(p,game.level)||null;
+      if(puzzlePlan){
+        direction=puzzlePlan.direction;
+        decision.jump=!!puzzlePlan.jump;
+        decision.puzzleKind=puzzlePlan.kind;
+        this.crateRecovery=null;
+      }
       // Yellow portals conceal their outcome. The bot decides to gamble or
       // jump past each portal without consulting its eventual destination.
       if(direction===1&&!puzzle){
@@ -126,7 +133,8 @@
         this.stalled=Math.min(2,this.stalled+step);
       else this.stalled=0;
       this.lastX=p.x;
-      if(p.grounded&&(decision.jump||this.stalled>.6)&&this.jumpCooldown===0){
+      if(p.grounded&&(decision.jump||(!puzzlePlan&&this.stalled>.6))&&
+        this.jumpCooldown===0){
         this.jumpHold=.26;this.jumpCooldown=.43;this.stalled=0;
         decision.jumpNow=true;
       }

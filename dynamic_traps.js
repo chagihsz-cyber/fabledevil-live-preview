@@ -47,6 +47,10 @@ class PushCrate {
   }
   reset(){}
   update(dt,g){
+    // Even when 20 rivals push the same crate in one animation frame,
+    // a floor plate must detect passage instead of being skipped.
+    this.pressureTargets=g.level.traps.filter(t=>
+      ['CrateLockGate','PressureBridge'].includes(t.constructor?.name));
     // Lightweight gravity for the box, independent from the player's switch.
     const solids=g.level.solids;
     const underneath=solids.some(s=>
@@ -70,6 +74,18 @@ class PushCrate {
       if(aabb(after,s)) return false;
     }
     if(nx<8)return false;
+    if(Math.abs(this.y+this.h-480)<8){
+      const sweptLeft=Math.min(this.x,nx);
+      const sweptRight=Math.max(this.x+this.w,nx+this.w);
+      for(const target of this.pressureTargets||[]){
+        if(sweptLeft<target.plateX+target.plateW&&
+          sweptRight>target.plateX){
+          // Both mechanisms latch after a successful plate crossing.
+          if(target.constructor?.name==='CrateLockGate')target.unlocked=true;
+          if(target.constructor?.name==='PressureBridge')target.extended=true;
+        }
+      }
+    }
     this.x=nx;this.rect.x=nx;
     return true;
   }
@@ -122,7 +138,11 @@ class MorphPad {
   reset(){this.activated=false;this.triggered=new WeakSet()}
   update(_dt,g){
     for(const p of gameActors(g)){
-      if(!this.triggered.has(p)&&aabb(p,R(this.x,this.y-11,this.w,20))){
+      const touching=aabb(p,R(this.x,this.y-11,this.w,20));
+      // Re-arm only after leaving the pad. Holding it cannot grant an
+      // infinite morph, but coming back after a failed attempt works.
+      if(!touching)this.triggered.delete(p);
+      if(touching&&!this.triggered.has(p)){
         this.activated=true;this.triggered.add(p);
         p.morph={kind:this.kind,expires:g.time+this.duration};
         if(p===g.player)g.morph=p.morph;

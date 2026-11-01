@@ -357,6 +357,7 @@
        }
        const exitRoute=g.tournament?.active?
          globalThis.FableTournament?.doorSteering(bot,g.level.door):null;
+       const puzzle=globalThis.FablePuzzleNavigation?.plan(bot,g.level)||null;
        const needsGapJump=playerFloor&&edgeDistance<Math.max(62,ai.anticipation*.72)&&
          edgeDistance>-18&&gap>15;
        const decisionKey=(needsGapJump?"gap":"")+(wallAhead?"wall":"")+
@@ -371,10 +372,10 @@
        // the bot glide through the portal with no visible decision.
        const portalUrgent=!!riskPortal&&!takesPortal&&
          riskPortal.x-(bot.x+bot.w)<45;
-       const shouldJump=bot.grounded&&(
+       const shouldJump=bot.grounded&&(puzzle?!!puzzle.jump:(
          (exitRoute?.jump&&!wallUrgent)||
          (!!decisionKey&&(wallUrgent||portalUrgent||this.clock>=(bot.decisionReadyAt||0))
-           &&!(exitRoute?.near&&!wallUrgent&&!danger&&!exitRoute.jump)));
+           &&!(exitRoute?.near&&!wallUrgent&&!danger&&!exitRoute.jump))));
        const inversionRoom=g.level.traps.find(t=>t.constructor?.name==="ChaosRoom"&&
          (t.type==="mirror"||t.type==="chaos")&&
          bot.x+bot.w/2>t.x&&bot.x+bot.w/2<t.x+t.width&&
@@ -408,7 +409,8 @@
        const hesitating=!decisionKey&&bot.grounded&&hesitationPhase<ai.hesitationMs;
        bot.hesitating=hesitating;
        const navigateExit=exitRoute?.near&&exitRoute.direction!==0;
-       const goalSpeed=navigateExit?ai.physics.maxSpeed*exitRoute.direction:
+       const goalSpeed=puzzle?ai.physics.maxSpeed*puzzle.direction:
+         navigateExit?ai.physics.maxSpeed*exitRoute.direction:
          exitRoute?.near&&exitRoute.direction===0?0:hesitating?0:ai.physics.maxSpeed;
        const target=(inversionReacting?-70:goalSpeed)*
          slowFactor*(mods.speed||1);
@@ -462,6 +464,7 @@
        if(bot.grounded)bot.safeX=bot.x;
        bot.stuckFor=bot.x<=oldX+.2?(bot.stuckFor||0)+dt:0;
        if(bot.stuckFor>.85+(ai.seed%500)/1000&&bot.grounded&&
+          (!puzzle||puzzle.jump)&&
           (!exitRoute?.near||wallAhead||exitRoute.jump)){
          bot.vy=ai.physics.jumpVelocity*(mods.jump||1)*gravityDir;bot.grounded=false;bot.jumping=true;
          bot.jumpHold=ai.jumpHoldMs/1000;bot.stuckFor=0;bot.jumps++;
