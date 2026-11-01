@@ -80,14 +80,13 @@ class SurpriseWall {
   }
   reset(){this.h=0;this.armed=false}
   update(dt,g){
-    const p=g.player;
-    if(p.x>=this.triggerX)this.armed=true;
+    const actors=gameActors(g);
+    if(actors.some(p=>p.x>=this.triggerX))this.armed=true;
     if(this.armed)this.h=Math.min(this.maxH,this.h+this.speed*dt);
     this.rect.x=this.x;this.rect.y=480-this.h;
     this.rect.w=this.w;this.rect.h=this.h;
-    if(this.drag&&this.h>25&&aabb(p,this.rect)){
-      p.x+=this.drag*dt;
-    }
+    if(this.drag&&this.h>25)for(const p of actors)
+      if(aabb(p,this.rect))p.x+=this.drag*dt;
   }
   solids(){return this.h>2?[this.rect]:[]}
   kills(){return []}
@@ -126,13 +125,21 @@ class ShiftingHole {
 class ReverseButton {
   constructor(x,type="controls",duration=3){
     this.x=x;this.type=type;this.duration=duration;this.cool=0;
+    this.entityCooldown=new WeakMap();
   }
-  reset(){this.cool=0}
+  reset(){this.cool=0;this.entityCooldown=new WeakMap()}
   update(dt,g){
     this.cool=Math.max(0,this.cool-dt);
-    if(this.cool<=0&&aabb(g.player,R(this.x,464,49,16))){
-      this.cool=2;g.reverseUntil=g.time+this.duration;
-      g.reverseType=this.type;AudioFX.beep();
+    const hit=R(this.x,464,49,16);
+    for(const actor of gameActors(g)){
+      const ready=this.entityCooldown.get(actor)??-Infinity;
+      if(!aabb(actor,hit)||g.time<ready)continue;
+      this.entityCooldown.set(actor,g.time+2);
+      if(actor===g.player){this.cool=2;g.reverseUntil=g.time+this.duration;
+        g.reverseType=this.type;}
+      else{actor.reverseUntil=g.time+this.duration;actor.reverseType=this.type;
+        actor.reverseSource=this;}
+      AudioFX.beep();
     }
     if(g.reverseUntil&&g.time<g.reverseUntil){
       if(g.reverseType==="gravity")g.gravityDir=-1;
@@ -389,7 +396,7 @@ class SurpriseSpike {
   }
   reset(){this.triggered=false;this.age=0}
   update(dt,g) {
-    if(!this.triggered&&g.player.x+g.player.w/2>this.triggerX){
+    if(!this.triggered&&gameActors(g).some(p=>p.x+p.w/2>this.triggerX)){
       this.triggered=true;
       this.age=0;
     }
@@ -433,7 +440,7 @@ class TriggeredChaseSaw {
   }
   reset(){this.x=this.startX;this.active=false;this.t=0}
   update(dt,g){
-    if(!this.active&&g.player.x>this.triggerX)this.active=true;
+    if(!this.active&&gameActors(g).some(p=>p.x>this.triggerX))this.active=true;
     if(this.active){this.x+=this.speed*dt;this.t+=dt;}
   }
   solids(){return []}

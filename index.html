@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=live-v5" />
+<link rel="stylesheet" href="style.css?v=live-v6" />
 </head>
 <body>
 <!-- TOP CONTROL BAR (always visible) -->
@@ -165,15 +165,15 @@
   </aside>
   <div id="live-event-toast" class="live-event-toast hidden" role="status" aria-live="polite"></div>
 
-  <div id="race-standings" class="hidden" aria-label="Classificação da corrida"></div>
+  <div id="race-standings" class="hidden" aria-label="Placar do modo Infinito"></div>
   <!-- Economy and competition are prototypes local to the browser. -->
   <div id="endless-settings" class="arcade-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="endless-settings-title">
     <h2 id="endless-settings-title">CONFIGURAR INFINITO</h2>
     <fieldset>
       <legend>Zumbis</legend>
       <label><input id="endless-zombies-off" type="radio" name="endless-zombies" value="off" checked> Desligados</label>
-      <label><input id="endless-zombies-easy" type="radio" name="endless-zombies" value="easy"> Fácil</label>
-      <label><input id="endless-zombies-hard" type="radio" name="endless-zombies" value="hard"> Difícil</label>
+      <label><input id="endless-zombies-easy" type="radio" name="endless-zombies" value="normal"> Normal · até 16 zumbis</label>
+      <label><input id="endless-zombies-hard" type="radio" name="endless-zombies" value="hard"> Difícil · Horda gigante (até 42)</label>
     </fieldset>
     <label for="endless-variant">Formato</label>
     <select id="endless-variant">
@@ -198,9 +198,9 @@
   <button id="competition-btn" class="hidden" type="button" aria-hidden="true" tabindex="-1">COMPETIÇÃO</button>
   <div id="zombie-settings" class="arcade-dialog hidden" role="dialog" aria-label="Escolher dificuldade dos zumbis">
     <h2>🧟 SOBREVIVÊNCIA ZUMBI</h2>
-    <p>Escolha a dificuldade. No fácil, eles perseguem mais devagar e aparecem menos.</p>
-    <label><input type="radio" name="zombie-difficulty" value="easy" checked> Fácil — perseguição moderada (154)</label>
-    <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — 12–18 zumbis velozes em ação</label>
+    <p>Normal: perseguição forte (até 16). Difícil: horda gigante (até 42).</p>
+    <label><input type="radio" name="zombie-difficulty" value="normal" checked> Normal — até 16 zumbis (224)</label>
+    <label><input type="radio" name="zombie-difficulty" value="hard"> Difícil — horda gigante de até 42 zumbis</label>
     <label><input id="zombie-main-bot" type="checkbox"> 🤖 Personagem principal controlado por bot</label>
     <p>🔫 Armas disponíveis automaticamente para todos, com munição limitada e drops durante a partida.</p>
     <input id="zombie-weapons" type="hidden" value="always-on">
@@ -309,15 +309,15 @@
 
 
 
-<script src="game.js?v=live-v5"></script>
-<script src="dynamic_traps.js?v=arcade9"></script>
-<script src="stage_mechanics.js?v=arcade9"></script>
+<script src="game.js?v=live-v6"></script>
+<script src="dynamic_traps.js?v=live-v6"></script>
+<script src="stage_mechanics.js?v=live-v6"></script>
 <script src="campaign_chapter2.js?v=arcade9"></script>
 <script src="arcade_modes.js?v=arcade9"></script>
 <script src="lab_chambers.js?v=arcade9"></script>
-<script src="adventure_modes.js?v=live-v5"></script>
+<script src="adventure_modes.js?v=live-v6"></script>
 <script src="live_rules.js?v=live-v5"></script>
-<script src="live_modes.js?v=live-v5"></script>
+<script src="live_modes.js?v=live-v6"></script>
 <script src="player_autopilot.js?v=live-v5"></script>
 </body>
 </html>

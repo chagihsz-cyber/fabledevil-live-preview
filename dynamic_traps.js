@@ -10,10 +10,11 @@ class ChaosRoom {
   }
   reset() {}
   update(_dt,g) {
-    const p=g.player;
-    const inside=p.x+p.w/2>this.x && p.x+p.w/2<this.x+this.width &&
-      p.y+p.h>this.y && p.y<this.y+this.h;
-    if(inside) {
+    for(const p of gameActors(g)){
+      const inside=p.x+p.w/2>this.x && p.x+p.w/2<this.x+this.width &&
+        p.y+p.h>this.y && p.y<this.y+this.h;
+      if(!inside)continue;
+      if(p!==g.player){p.chaosRoom=this;continue;}
       if(this.type==="gravity") g.gravityDir=-1;
       if(this.type==="mirror") g.invertControls=true;
       if(this.type==="chaos") {
@@ -116,26 +117,29 @@ class MorphPad {
     this.x=x;this.kind=kind;this.y=opts.y??473;
     this.w=opts.w??52;this.activated=false;
     this.duration=opts.duration??7;
+    this.triggered=new WeakSet();
   }
-  reset(){this.activated=false}
+  reset(){this.activated=false;this.triggered=new WeakSet()}
   update(_dt,g){
-    const p=g.player;
-    if(!this.activated&&aabb(p,R(this.x,this.y-11,this.w,20))){
-      this.activated=true;
-      g.morph={kind:this.kind,expires:g.time+this.duration};
-      AudioFX.beep();
-    }
-    const morph=g.morph;
-    if(morph&&morph.kind===this.kind&&g.time<morph.expires) {
-      const height=this.kind==='slim'?17:this.kind==='tall'?54:32;
-      const width=this.kind==='wide'?49:this.kind==='slim'?20:26;
-      if(p.h!==height){p.y+=p.h-height;p.h=height;}
-      p.w=width;
-    } else if(morph&&morph.kind===this.kind&&g.time>=morph.expires) {
-      // Restore only when extra volume will not overlap a solid ceiling.
-      const desired=R(p.x,p.y+p.h-32,26,32);
-      if(!g.collectSolids().some(s=>aabb(desired,s))) {
-        p.y+=p.h-32;p.h=32;p.w=26;g.morph=null;
+    for(const p of gameActors(g)){
+      if(!this.triggered.has(p)&&aabb(p,R(this.x,this.y-11,this.w,20))){
+        this.activated=true;this.triggered.add(p);
+        p.morph={kind:this.kind,expires:g.time+this.duration};
+        if(p===g.player)g.morph=p.morph;
+        AudioFX.beep();
+      }
+      const morph=p.morph;
+      if(morph&&morph.kind===this.kind&&g.time<morph.expires) {
+        const height=this.kind==='slim'?17:this.kind==='tall'?54:32;
+        const width=this.kind==='wide'?49:this.kind==='slim'?20:26;
+        if(p.h!==height){p.y+=p.h-height;p.h=height;}
+        p.w=width;
+      } else if(morph&&morph.kind===this.kind&&g.time>=morph.expires) {
+        const desired=R(p.x,p.y+p.h-32,26,32);
+        if(!g.collectSolids().some(s=>aabb(desired,s))) {
+          p.y+=p.h-32;p.h=32;p.w=26;p.morph=null;
+          if(p===g.player)g.morph=null;
+        }
       }
     }
   }
@@ -158,7 +162,7 @@ class StretchBridge {
   }
   reset(){this.progress=0;this.latched=false}
   update(dt,g){
-    if(aabb(g.player,R(this.padX,466,48,16))) this.latched=true;
+    if(gameActors(g).some(p=>aabb(p,R(this.padX,466,48,16))))this.latched=true;
     this.progress=clamp(this.progress+(this.latched?2:-2)*dt,0,1);
     this.rect.w=this.w*this.progress;
   }
@@ -201,7 +205,7 @@ class PhantomFloor {
   }
   reset(){this.fade=0}
   update(dt,g){
-    if(g.player.x>this.trigger)this.fade=clamp(this.fade+dt*4.8,0,1);
+    if(gameActors(g).some(p=>p.x>this.trigger))this.fade=clamp(this.fade+dt*4.8,0,1);
   }
   solids(){return this.fade<.42?[this.rect]:[]}
   kills(){return []}

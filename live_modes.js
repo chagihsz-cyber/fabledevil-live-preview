@@ -244,7 +244,7 @@
       if(hazards.some(h=>h.w>0&&h.h>0&&
         body.x<h.x+h.w&&body.x+body.w>h.x&&
         body.y<h.y+h.h&&body.y+body.h>h.y))return false;
-      if(portalEntries.some(entry=>Math.abs(entry-x)<94))return false;
+      if(portalEntries.some(entry=>Math.abs(entry-x)<140))return false;
       return true;
     });
     if(!candidates.length)return null;
@@ -742,9 +742,9 @@
   byId("challenge-btn")?.addEventListener("click",()=>endlessSettings?.classList.add("hidden"),true);
   byId("endless-start")?.addEventListener("click",()=>{
     const zombie=byId("endless-zombies-hard")?.checked?"hard":
-      (byId("endless-zombies-easy")?.checked?"easy":"off");
+      (byId("endless-zombies-easy")?.checked?"normal":"off");
     const variant=byId("endless-variant")?.value||"standard";
-    Game.zombieDifficulty=zombie==="hard"?"hard":"easy";
+    Game.zombieDifficulty=zombie==="hard"?"hard":"normal";
     Game.liveWeaponsEnabled=!!byId("endless-weapons")?.checked;
     Game.liveAutoFire=!!byId("endless-autofire")?.checked;
     if(variant==="standard")Game.requestedEndlessKind=zombie==="off"?"peace":"zombies";
@@ -769,7 +769,7 @@
       t.kills().some(hit=>aabb(hitbox,hit)));
     if(blocked)return false;
     this.zombies.push({x,y:448,vy:0,grounded:true,face:1,life:1,anim:0,
-      bornAt:g.time,autoShootReadyAt:g.time+2.3,spawnT:1.15});
+      spawnX:x,bornAt:g.time,autoShootReadyAt:g.time+2.3,spawnT:1.15});
     this.spawned++;return true;
   };
   ZombieHorde.prototype.update=function(dt,g){
@@ -780,9 +780,12 @@
     return result;
   };
 
+  // Shared across all yellow portals in the current running game.
+  // WeakMap entries are per actor, preventing A -> B -> A rapid teleport loops.
+  const globalRiskPortalLock=new WeakMap();
   class RiskPortal {
     constructor(x,y,sectionEnd){
-      this.x=x;this.y=y;this.w=30;this.h=48;
+      this.x=x;this.y=y+24;this.w=15;this.h=24;
       this.arcadeSectionEnd=sectionEnd;this.cool=0;this.t=0;
       this.outcome=null;this.isRiskPortal=true;this.entityCooldown=new WeakMap();
     }
@@ -790,7 +793,9 @@
     transport(p,g,random=Math.random){
       if(!p||g.state!=="play"||!aabb(p,R(this.x,this.y,this.w,this.h)))return false;
       const last=this.entityCooldown.get(p)??-Infinity;
-      if(g.time-last<1.4)return false;
+      const sharedLast=globalRiskPortalLock.get(p);
+      if(g.time>=last&&g.time-last<2.5)return false;
+      if(sharedLast&&g.time>=sharedLast.time&&g.time-sharedLast.time<2.5)return false;
       const lethal=[];
       const otherPortals=[];
       for(const trap of g.level.traps){
@@ -815,6 +820,7 @@
       p.x=target.x;p.y=target.y-p.h;p.vx=0;p.vy=0;
       p.grounded=true;p.jumping=false;p.coyote=0;
       this.entityCooldown.set(p,g.time);
+      globalRiskPortalLock.set(p,{time:g.time,entryX:this.x,exitX:target.x});
       this.outcome=target.beneficial?"help":"setback";
       if(typeof AudioFX!=="undefined")AudioFX.poof();
       return true;
@@ -830,9 +836,9 @@
       ctx.save();ctx.translate(this.x+this.w/2,this.y+this.h/2);
       const glow=.12+.09*Math.sin(this.t*3);
       ctx.strokeStyle="#f8ba54";ctx.fillStyle="rgba(252,181,61,"+glow+")";
-      ctx.lineWidth=3.5;ctx.beginPath();
-      ctx.ellipse(0,0,14,22,0,0,Math.PI*2);ctx.fill();ctx.stroke();
-      ctx.fillStyle="#fff0b9";ctx.font="bold 20px "+FONT;
+      ctx.lineWidth=2;ctx.beginPath();
+      ctx.ellipse(0,0,7,11,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+      ctx.fillStyle="#fff0b9";ctx.font="bold 11px "+FONT;
       ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("?",0,0);
       ctx.restore();
     }
@@ -858,7 +864,7 @@
       if(this.ttl<=0)return;
       if(this.warning>0){
         ctx.save();ctx.fillStyle="#ffd37a";ctx.font="bold 11px "+FONT;
-        ctx.textAlign="center";ctx.fillText("PORTAL SURPRESA!",this.x+15,this.y-13);
+        ctx.textAlign="center";ctx.fillText("PORTAL SURPRESA!",this.x+this.w/2,this.y-13);
         ctx.restore();return;
       }
       super.draw();

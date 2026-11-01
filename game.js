@@ -16,6 +16,10 @@ const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2)
 const aabb = (a, b) =>
   a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 const R = (x, y, w, h) => ({ x, y, w, h });
+const gameActors = (g) => {
+  if (typeof g?.liveActors === "function") return g.liveActors();
+  return g?.player ? [g.player] : [];
+};
 const FONT = "'Outfit', system-ui, -apple-system, sans-serif";
 
 // ---------------------------------------------------------------- theme
@@ -198,7 +202,7 @@ class CollapseFloor {
   }
   reset() { this.state = "idle"; this.t = 0; this.dy = 0; this.vy = 0; }
   update(dt, g) {
-    if (this.state === "idle" && aabb(g.player, this.trigger)) {
+    if (this.state === "idle" && gameActors(g).some((actor) => aabb(actor, this.trigger))) {
       this.state = "wait"; this.t = 0;
     } else if (this.state === "wait") {
       this.t += dt;
@@ -248,7 +252,9 @@ class PopSpikes {
   reset() { this.out = 0; this.state = this.trigger ? "idle" : "cycle"; this.t = -this.delay; this.ct = this.phase; }
   update(dt, g) {
     if (this.state === "idle") {
-      if (aabb(g.player, this.trigger)) { this.state = "popping"; this.t = -this.delay; }
+      if (gameActors(g).some((actor) => aabb(actor, this.trigger))) {
+        this.state = "popping"; this.t = -this.delay;
+      }
     } else if (this.state === "popping") {
       this.t += dt;
       if (this.t >= 0) {
@@ -306,7 +312,7 @@ class FallBlock {
   }
   reset() { this.rect = { ...this.home }; this.state = "idle"; this.t = 0; this.vy = 0; }
   update(dt, g) {
-    if (this.state === "idle" && aabb(g.player, this.trigger)) {
+    if (this.state === "idle" && gameActors(g).some((actor) => aabb(actor, this.trigger))) {
       this.state = "shake"; this.t = 0; AudioFX.rumble();
     } else if (this.state === "shake") {
       this.t += dt;
@@ -363,7 +369,7 @@ class Crusher {
   update(dt, g) {
     const maxY = this.floorY - this.headH;
     if (this.state === "armed") {
-      if (aabb(g.player, this.trigger)) { this.state = "slam"; }
+      if (gameActors(g).some((actor) => aabb(actor, this.trigger))) this.state = "slam";
     } else if (this.state === "waiting") {
       this.t += dt;
       if (this.t >= this.period) { this.t = 0; this.state = "slam"; }
@@ -426,10 +432,9 @@ class CrumblePlatform {
   reset() { this.rect = { ...this.home }; this.state = "idle"; this.t = 0; this.vy = 0; }
   update(dt, g) {
     if (this.state === "idle") {
-      const p = g.player;
-      const standing = p.grounded &&
+      const standing = gameActors(g).some((p) => p.grounded &&
         Math.abs(p.y + p.h - this.rect.y) < 3 &&
-        p.x + p.w > this.rect.x && p.x < this.rect.x + this.rect.w;
+        p.x + p.w > this.rect.x && p.x < this.rect.x + this.rect.w);
       if (standing) { this.state = "shaking"; this.t = 0; AudioFX.rumble(); }
     } else if (this.state === "shaking") {
       this.t += dt;
@@ -466,9 +471,18 @@ class SlidingHole {
   }
   reset() { this.gx = this.startGap; this.active = !this.trigger; }
   update(dt, g) {
-    if (!this.active && this.trigger && aabb(g.player, this.trigger)) { this.active = true; AudioFX.rumble(); }
+    if (!this.active && this.trigger &&
+        gameActors(g).some((actor) => aabb(actor, this.trigger))) {
+      this.active = true; AudioFX.rumble();
+    }
     if (!this.active) return;
-    const target = clamp(g.player.x + g.player.w / 2, this.x0 + this.gapW / 2 + 4, this.x1 - this.gapW / 2 - 4);
+    const actors = gameActors(g);
+    const tracked = actors.reduce((best, actor) =>
+      !best || Math.abs(actor.x + actor.w / 2 - this.gx) <
+        Math.abs(best.x + best.w / 2 - this.gx) ? actor : best, null);
+    if (!tracked) return;
+    const target = clamp(tracked.x + tracked.w / 2,
+      this.x0 + this.gapW / 2 + 4, this.x1 - this.gapW / 2 - 4);
     const d = target - this.gx;
     const step = clamp(d, -this.speed * dt, this.speed * dt);
     this.gx += step;
@@ -531,7 +545,13 @@ class StaticSpikes {
 class InvertZone {
   constructor(rect) { this.rect = rect; }
   reset() {}
-  update(dt, g) { if (aabb(g.player, this.rect)) g.invertControls = true; }
+  update(_dt, g) {
+    for (const actor of gameActors(g)) {
+      if (!aabb(actor, this.rect)) continue;
+      if (actor === g.player) g.invertControls = true;
+      else actor.invertZone = this;
+    }
+  }
   solids() { return []; }
   kills() { return []; }
   draw() {
@@ -587,11 +607,12 @@ class MovingPlatform {
     const p = this._posAt(this.t);
     this.px = p.x; this.py = p.y;
     this.dx = this.px - prevx; this.dy = this.py - prevy;
-    const pl = g.player;
-    const onTop = pl.vy >= -1 &&
-      pl.x + pl.w > prevx + 2 && pl.x < prevx + this.w - 2 &&
-      Math.abs((pl.y + pl.h) - prevy) <= 8;
-    if (onTop) { pl.x += this.dx; pl.y += this.dy; }
+    for (const pl of gameActors(g)) {
+      const onTop = pl.vy >= -1 &&
+        pl.x + pl.w > prevx + 2 && pl.x < prevx + this.w - 2 &&
+        Math.abs((pl.y + pl.h) - prevy) <= 8;
+      if (onTop) { pl.x += this.dx; pl.y += this.dy; }
+    }
   }
   solids() { return [R(this.px, this.py, this.w, this.h)]; }
   kills() { return []; }
@@ -615,11 +636,13 @@ class Conveyor {
   reset() { this.t = 0; }
   update(dt, g) {
     this.t += dt * this.dir;
-    const p = g.player, r = this.rect;
-    const standing = p.grounded && Math.abs((p.y + p.h) - r.y) < 4 &&
-      p.x + p.w > r.x && p.x < r.x + r.w;
     this.activeDir = g.flags?.invertElements ? -this.dir : this.dir;
-    if (standing) p.x += this.activeDir * this.force * dt;
+    const r = this.rect;
+    for (const p of gameActors(g)) {
+      const standing = p.grounded && Math.abs((p.y + p.h) - r.y) < 4 &&
+        p.x + p.w > r.x && p.x < r.x + r.w;
+      if (standing) p.x += this.activeDir * this.force * dt;
+    }
   }
   solids() { return [this.rect]; }
   kills() { return []; }
@@ -654,16 +677,13 @@ class Spring {
   reset() { this.c = 0; }
   update(dt, g) {
     this.c = Math.max(0, this.c - dt * 5);
-    const p = g.player;
-    const overX = p.x + p.w > this.x + 3 && p.x < this.x + this.w - 3;
-    const bottom = p.y + p.h;
-    if (overX && p.vy >= 0 && bottom >= this.y - 6 && bottom <= this.y + 40) {
-      p.y = this.y - p.h;
-      p.vy = this.power;
-      p.grounded = false;
-      this.c = 1;
-      AudioFX.bounce();
-      spawnDust(this.x + this.w / 2, this.y, 6);
+    for (const p of gameActors(g)) {
+      const overX = p.x + p.w > this.x + 3 && p.x < this.x + this.w - 3;
+      const bottom = p.y + p.h;
+      if (overX && p.vy >= 0 && bottom >= this.y - 6 && bottom <= this.y + 40) {
+        p.y = this.y - p.h;p.vy = this.power;p.grounded = false;
+        this.c = 1;AudioFX.bounce();spawnDust(this.x + this.w / 2, this.y, 6);
+      }
     }
   }
   solids() { return []; }
@@ -881,7 +901,7 @@ class Button {
   reset() { this.pressed = false; this.dip = 0; }
   update(dt, g) {
     const hit = R(this.x, this.y - 8, this.w, this.h + 12);
-    const on = aabb(g.player, hit);
+    const on = gameActors(g).some((actor) => aabb(actor, hit));
     if (this.momentary) { this.pressed = on; }
     else if (on) { if (!this.pressed) AudioFX.beep(); this.pressed = true; }
     g.flags[this.key] = this.pressed;
@@ -1807,6 +1827,17 @@ const Game = {
     const out = [...this.level.solids];
     for (const t of this.level.traps) out.push(...t.solids());
     return out;
+  },
+
+  liveActors() {
+    const actors = this.player ? [this.player] : [];
+    if (this.arcadeMode !== "endless" || !this.level) return actors;
+    const race = this.level.traps.find((trap) =>
+      trap.constructor?.name === "CompetitionTraining");
+    for (const bot of race?.rivals || []) {
+      if (bot.alive && !(bot.respawnTimer > 0)) actors.push(bot);
+    }
+    return actors;
   },
 
   updatePlay(dt) {

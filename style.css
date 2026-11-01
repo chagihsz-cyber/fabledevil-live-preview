@@ -515,10 +515,16 @@ button#challenge-btn:hover {filter:brightness(1.14)}
 #race-standings{position:absolute;top:62px;right:18px;z-index:21;
  background:#172d26e8;border:1px solid #60876a;border-radius:11px;
  padding:8px 11px;min-width:195px;max-width:240px;
- color:#d7eed5;font:700 11px/1.7 system-ui;pointer-events:none}
+ color:#d7eed5;font:700 11px/1.7 system-ui;
+ max-height:min(185px,38vh);overflow-y:auto;overflow-x:hidden;
+ pointer-events:auto;overscroll-behavior:contain;scrollbar-width:thin}
+#race-standings::before{content:"🏆 PLACAR";display:block;
+ color:#f9df9e;font:900 11px/1.4 system-ui;letter-spacing:.05em;
+ position:sticky;top:0;background:#172d26;padding-bottom:3px}
 #race-standings .racer-you{color:#ffe3a3}
 @media(max-width:650px){#race-standings{right:6px;top:44px;
- font-size:10px;min-width:155px;padding:5px}}
+ font-size:10px;min-width:155px;max-width:190px;
+ max-height:min(118px,33vh);padding:5px}}
 
 /* LIVE laboratory: dense, operator-friendly controls that fit the game stage. */
 .live-status-row{display:flex;align-items:center;justify-content:center;gap:12px;

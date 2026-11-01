@@ -13,6 +13,9 @@
  const noLives=document.getElementById("arcade-out-of-lives");
  const settings=document.getElementById("competition-settings");
  const compResult=document.getElementById("competition-results");
+ const zombieModeSettings=difficulty=>difficulty==="hard"
+   ?{speed:282,spawnEvery:.24,maxZombies:42,initialDelay:.8,label:"DIFÍCIL · HORDA GIGANTE"}
+   :{speed:224,spawnEvery:.72,maxZombies:16,initialDelay:1.2,label:"NORMAL"};
  const getStore=(key, fallback)=>{
    try{const v=localStorage.getItem(key);return v===null?fallback:Number(v)||0;}
    catch{return fallback;}
@@ -90,34 +93,29 @@
    this.endlessKind=this.requestedEndlessKind||"peace";
    coreStartEndless.call(this);
    this.endlessKind=this.requestedEndlessKind||"peace";
-   document.getElementById("race-standings").classList.toggle("hidden",
-     this.endlessKind!=="competition");
+   document.getElementById("race-standings").classList.remove("hidden");
    this.hearts=MAX_LIVES;
    this.lastSafeX=55;
    this.invulnerableUntil=0;
    this.respawnTimer=0;
    if(this.endlessKind==="zombies"){
-     const hard=this.zombieDifficulty==="hard";
-     this.level.traps.push(new ZombieHorde({
-       speed:hard?224:154,spawnEvery:hard?.72:2.2,
-       maxZombies:hard?16:7,initialDelay:hard?1.2:2.2}));
+     const settings=zombieModeSettings(this.zombieDifficulty);
+     this.level.traps.push(new ZombieHorde(settings));
      document.getElementById("hud-levelname").textContent=
-       hard?"ZUMBIS · DIFÍCIL":"ZUMBIS · FÁCIL";
+       "ZUMBIS · "+settings.label;
    } else if(this.endlessKind==="competition") {
      const type=this.competitionType||"race";
      this.level.traps.push(new CompetitionTraining(type));
      if(this.competitionWithZombies){
-       const hard=this.zombieDifficulty==="hard";
-       this.level.traps.push(new ZombieHorde({
-         speed:hard?214:152,spawnEvery:hard?1.1:5.0,maxZombies:hard?14:3}));
+       this.level.traps.push(new ZombieHorde(zombieModeSettings(this.zombieDifficulty)));
      }
      document.getElementById("hud-levelname").textContent="COMPETIÇÃO · BOTS";
    }
    updateHud();
  };
- Game.startZombieMode=function(difficulty="easy") {
+ Game.startZombieMode=function(difficulty="normal") {
    this.requestedEndlessKind="zombies";
-   this.zombieDifficulty=difficulty==="hard"?"hard":"easy";
+   this.zombieDifficulty=difficulty==="hard"?"hard":"normal";
    return this.startEndless();
  };
  const zombieSettings=document.getElementById("zombie-settings");
@@ -132,7 +130,7 @@
  document.getElementById("zombie-start").addEventListener("click",()=>{
    const choice=document.querySelector('input[name="zombie-difficulty"]:checked');
    zombieSettings.classList.add("hidden");
-   Game.startZombieMode(choice?.value||"easy");
+   Game.startZombieMode(choice?.value||"normal");
  });
  // Existing peaceful button uses the original call and defaults to "peace".
  document.getElementById("endless-btn").addEventListener("click",()=>{
@@ -279,6 +277,8 @@
      bot.deadCount++;
      bot.respawnTimer=.5;
      bot.vx=0;bot.vy=0;
+     bot.y+=bot.h-32;bot.w=26;bot.h=32;bot.morph=null;
+     bot.reverseUntil=0;bot.reverseType=null;bot.reverseSource=null;
      if(bot.lives===0)bot.alive=false;
    }
    update(dt,g) {
@@ -299,6 +299,8 @@
            bot.x=Math.max(floor.x+8,Math.min(desired,floor.x+floor.w-35));
            bot.y=448;bot.vx=0;bot.vy=0;bot.grounded=true;
            bot.jumping=false;bot.jumpHold=0;bot.squash=0;
+           bot.w=26;bot.h=32;bot.morph=null;
+           bot.reverseUntil=0;bot.reverseType=null;bot.reverseSource=null;
            bot.protectedUntil=this.clock+.8;
          }
          continue;
@@ -338,20 +340,34 @@
        }else if(!decisionKey){bot.decisionKey="";bot.decisionReadyAt=this.clock;}
        const wallUrgent=wallAhead&&solids.some(s=>!s.pushable&&
          s.x-(bot.x+bot.w)<28&&s.x>=bot.x+bot.w-5);
+       // Avoiding an overlapping yellow portal requires an immediate evasive
+       // jump; waiting through the full human-like reaction delay would let
+       // the bot glide through the portal with no visible decision.
+       const portalUrgent=!!riskPortal&&!takesPortal&&
+         riskPortal.x-(bot.x+bot.w)<45;
        const shouldJump=bot.grounded&&!!decisionKey&&
-         (wallUrgent||this.clock>=(bot.decisionReadyAt||0));
+         (wallUrgent||portalUrgent||this.clock>=(bot.decisionReadyAt||0));
        const inversionRoom=g.level.traps.find(t=>t.constructor?.name==="ChaosRoom"&&
          (t.type==="mirror"||t.type==="chaos")&&
          bot.x+bot.w/2>t.x&&bot.x+bot.w/2<t.x+t.width&&
          bot.y+bot.h>t.y&&bot.y<t.y+t.h);
-       if(inversionRoom&&bot.inversionRoom!==inversionRoom){
-         bot.inversionRoom=inversionRoom;
+       const timedInversion=bot.reverseType==="controls"&&bot.reverseUntil>g.time;
+       const inversionSource=inversionRoom||(timedInversion?bot.reverseSource:null);
+       if(inversionSource&&bot.inversionSource!==inversionSource){
+         bot.inversionSource=inversionSource;
          const reaction=ai.inversionMs/1000;
          bot.inversionDelayUntil=this.clock+reaction;
          bot.inversionWrongWay=false;
-       }else if(!inversionRoom)bot.inversionRoom=null;
-       const inversionReacting=!!inversionRoom&&this.clock<(bot.inversionDelayUntil||0);
+       }else if(!inversionSource)bot.inversionSource=null;
+       const inversionReacting=!!inversionSource&&this.clock<(bot.inversionDelayUntil||0);
        if(inversionReacting)bot.inversionWrongWay=true;
+       const gravityRoom=g.level.traps.find(t=>t.constructor?.name==="ChaosRoom"&&
+         (t.type==="gravity"||t.type==="chaos")&&
+         bot.x+bot.w/2>t.x&&bot.x+bot.w/2<t.x+t.width&&
+         bot.y+bot.h>t.y&&bot.y<t.y+t.h);
+       const gravityDir=gravityRoom||
+         (bot.reverseType==="gravity"&&bot.reverseUntil>g.time)?-1:1;
+       bot.gravityDir=gravityDir;
        // Match the original protagonist's 265 px/s speed, 2600/1800
        // ground/air acceleration, -645 jump, 2150 gravity and 980 fall cap.
        // The AI decides WHEN to jump, never receives extra movement power.
@@ -368,15 +384,17 @@
        bot.speed=ai.physics.maxSpeed;
        bot.face=bot.vx<0?-1:1;
        if(shouldJump&&bot.grounded){
-         bot.vy=ai.physics.jumpVelocity;bot.grounded=false;bot.jumping=true;
+         bot.vy=ai.physics.jumpVelocity*gravityDir;bot.grounded=false;bot.jumping=true;
          bot.jumpHold=ai.jumpHoldMs/1000;bot.jumps++;
        }
        bot.jumpHold=Math.max(0,(bot.jumpHold||0)-dt);
-       if(bot.vy>=0)bot.jumping=false;
-       if(bot.jumpHold<=0&&bot.jumping&&bot.vy<-220){
-         bot.vy=-220;bot.jumping=false;
+       if(bot.vy*gravityDir>=0)bot.jumping=false;
+       if(bot.jumpHold<=0&&bot.jumping&&bot.vy*gravityDir<-220){
+         bot.vy=-220*gravityDir;bot.jumping=false;
        }
-       bot.vy=Math.min(bot.vy+ai.physics.gravity*dt,ai.physics.fallCap);
+       bot.vy=gravityDir>0
+         ?Math.min(bot.vy+ai.physics.gravity*dt,ai.physics.fallCap)
+         :Math.max(bot.vy-ai.physics.gravity*dt,-ai.physics.fallCap);
        bot.x+=bot.vx*dt;
        for(const solid of solids){
          if(!aabb(bot,solid))continue;
@@ -395,19 +413,19 @@
        bot.grounded=false;
        for(const solid of solids){
          if(!aabb(bot,solid))continue;
-         if(bot.vy>0){
-           bot.y=solid.y-bot.h;
-           if(!wasGrounded&&bot.vy>350)bot.squash=.12;
+         if(bot.vy*gravityDir>0){
+           bot.y=gravityDir>0?solid.y-bot.h:solid.y+solid.h;
+           if(!wasGrounded&&Math.abs(bot.vy)>350)bot.squash=.12;
            bot.vy=0;bot.grounded=true;
-         }else if(bot.vy<0){
-           bot.y=solid.y+solid.h;bot.vy=0;
+         }else if(bot.vy*gravityDir<0){
+           bot.y=gravityDir>0?solid.y+solid.h:solid.y-bot.h;bot.vy=0;
          }
        }
        bot.squash=Math.max(0,(bot.squash||0)-dt);
        if(bot.grounded)bot.safeX=bot.x;
        bot.stuckFor=bot.x<=oldX+.2?(bot.stuckFor||0)+dt:0;
        if(bot.stuckFor>.85+(ai.seed%500)/1000&&bot.grounded){
-         bot.vy=ai.physics.jumpVelocity;bot.grounded=false;bot.jumping=true;
+         bot.vy=ai.physics.jumpVelocity*gravityDir;bot.grounded=false;bot.jumping=true;
          bot.jumpHold=ai.jumpHoldMs/1000;bot.stuckFor=0;bot.jumps++;
        }
        if(riskPortal&&takesPortal&&typeof riskPortal.transport==="function")
@@ -415,25 +433,29 @@
        if(this.botHit(bot,g))this.loseLife(bot,g);
      }
      const stand=document.getElementById("race-standings");
-     if(stand && g.endlessKind==="competition"&&
-       this.clock-(this.lastHudUpdate||0)>.15) {
+     if(stand&&g.arcadeMode==="endless"&&
+       this.clock-(this.lastHudUpdate??-Infinity)>=.15) {
        this.lastHudUpdate=this.clock;
        stand.classList.remove("hidden");
        const positions=[
          {name:g.player.liveTeam&&g.player.liveTeam!=="none"
            ?"Você ["+g.player.liveTeamLabel+"]":"Você",
           isPlayer:true,x:g.player.x,live:g.hearts,alive:g.hearts>0},
-         ...this.rivals.map(b=>({name:racerLabel(b),x:b.x,live:b.lives,alive:b.alive}))
+         ...this.rivals.map(b=>({name:racerLabel(b),x:b.x,live:b.lives,
+           alive:b.alive,color:b.personalColor||b.teamColor||b.color}))
        ].sort((a,b)=>b.x-a.x);
+       const previousScroll=Number(stand.scrollTop)||0;
        stand.replaceChildren();
        for(let i=0;i<positions.length;i++){
          const line=document.createElement("div");
          const b=positions[i];
          line.textContent=(i+1)+"º "+b.name+" · "+Math.max(0,Math.floor((b.x-55)/10))+
            " m · ♥"+b.live+(b.alive?"":" ☠");
+         if(b.color)line.style.borderLeftColor=b.color;
          if(b.isPlayer)line.classList.add("racer-you");
          stand.appendChild(line);
        }
+       stand.scrollTop=previousScroll;
      }
      if(this.type==="race"){
        if(g.endlessScore>=350){g.showCompetitionResult("Você chegou à meta!");return;}
