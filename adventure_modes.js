@@ -286,6 +286,11 @@
      // eliminates the bot and may make the next-stage quota impossible.
      bot.lives=Math.max(0,bot.lives-1);
      bot.deadCount++;
+     const last=bot.lastFailureX;
+     bot.retryStrategy=Number.isFinite(last)&&Math.abs(last-bot.x)<55
+       ?Math.min(4,(bot.retryStrategy||0)+1):0;
+     bot.lastFailureX=bot.x;
+     bot.flightSpeed=null;
      bot.respawnTimer=.5;
      bot.vx=0;bot.vy=0;
      g.clearActorPowers?.(bot);
@@ -358,6 +363,10 @@
        const exitRoute=g.tournament?.active?
          globalThis.FableTournament?.doorSteering(bot,g.level.door):null;
        const puzzle=globalThis.FablePuzzleNavigation?.plan(bot,g.level)||null;
+       const hazard=!puzzle?globalThis.FablePuzzleNavigation?.hazardPlan(
+         bot,g.level,ai.physics):null;
+       const transfer=!puzzle&&!hazard?globalThis.FablePuzzleNavigation?.platformPlan(
+         bot,g.level,solids,ai.physics):null;
        const needsGapJump=playerFloor&&edgeDistance<Math.max(62,ai.anticipation*.72)&&
          edgeDistance>-18&&gap>15;
        const decisionKey=(needsGapJump?"gap":"")+(wallAhead?"wall":"")+
@@ -372,7 +381,8 @@
        // the bot glide through the portal with no visible decision.
        const portalUrgent=!!riskPortal&&!takesPortal&&
          riskPortal.x-(bot.x+bot.w)<45;
-       const shouldJump=bot.grounded&&(puzzle?!!puzzle.jump:(
+       const shouldJump=bot.grounded&&(puzzle?!!puzzle.jump:
+         hazard?!!hazard.jump:transfer?!!transfer.jump:(
          (exitRoute?.jump&&!wallUrgent)||
          (!!decisionKey&&(wallUrgent||portalUrgent||this.clock>=(bot.decisionReadyAt||0))
            &&!(exitRoute?.near&&!wallUrgent&&!danger&&!exitRoute.jump))));
@@ -410,9 +420,13 @@
        bot.hesitating=hesitating;
        const navigateExit=exitRoute?.near&&exitRoute.direction!==0;
        const goalSpeed=puzzle?ai.physics.maxSpeed*puzzle.direction:
+         hazard?ai.physics.maxSpeed*hazard.direction:
+         transfer?ai.physics.maxSpeed*transfer.direction:
          navigateExit?ai.physics.maxSpeed*exitRoute.direction:
          exitRoute?.near&&exitRoute.direction===0?0:hesitating?0:ai.physics.maxSpeed;
-       const target=(inversionReacting?-70:goalSpeed)*
+       const airborneLimit=!bot.grounded&&bot.flightSpeed>0?bot.flightSpeed:Infinity;
+       const target=(inversionReacting?-70:
+         Math.max(-airborneLimit,Math.min(airborneLimit,goalSpeed)))*
          slowFactor*(mods.speed||1);
        const acceleration=bot.grounded?ai.physics.groundAcceleration:ai.physics.airAcceleration;
        if(target>bot.vx)bot.vx=Math.min(target,bot.vx+acceleration*dt);
@@ -420,6 +434,7 @@
        bot.speed=ai.physics.maxSpeed;
        bot.face=bot.vx<0?-1:1;
        if(shouldJump&&bot.grounded){
+         bot.flightSpeed=hazard?.flightSpeed||transfer?.flightSpeed||null;
          bot.vy=ai.physics.jumpVelocity*(mods.jump||1)*gravityDir;bot.grounded=false;bot.jumping=true;
          bot.jumpHold=ai.jumpHoldMs/1000;bot.jumps++;
        }
@@ -461,10 +476,13 @@
          }
        }
        bot.squash=Math.max(0,(bot.squash||0)-dt);
-       if(bot.grounded)bot.safeX=bot.x;
+       if(bot.grounded){bot.safeX=bot.x;bot.flightSpeed=null;}
+       if(Number.isFinite(bot.lastFailureX)&&bot.x>bot.lastFailureX+85)
+         bot.retryStrategy=0;
        bot.stuckFor=bot.x<=oldX+.2?(bot.stuckFor||0)+dt:0;
        if(bot.stuckFor>.85+(ai.seed%500)/1000&&bot.grounded&&
-          (!puzzle||puzzle.jump)&&
+          (!puzzle||puzzle.jump)&&(!hazard||hazard.jump)&&
+          (!transfer||transfer.jump)&&
           (!exitRoute?.near||wallAhead||exitRoute.jump)){
          bot.vy=ai.physics.jumpVelocity*(mods.jump||1)*gravityDir;bot.grounded=false;bot.jumping=true;
          bot.jumpHold=ai.jumpHoldMs/1000;bot.stuckFor=0;bot.jumps++;
